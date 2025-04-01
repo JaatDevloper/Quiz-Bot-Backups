@@ -2,11 +2,21 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install required packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
+# Install Python dependencies
+COPY pyproject.toml .
+RUN pip install --no-cache-dir python-telegram-bot==13.15 flask==2.3.3 reportlab==4.0.4 gunicorn==21.2.0 psycopg2-binary==2.9.7 python-dotenv==1.0.0
+
+# Copy the application code
 COPY . .
 
+# Expose the port for health checks
 EXPOSE 8080
 
-CMD ["python", "standalone.py"]
+# Start the bot
+CMD ["python", "healthcheck.py"]
