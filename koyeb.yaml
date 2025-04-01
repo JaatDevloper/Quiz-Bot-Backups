@@ -1,0 +1,28 @@
+name: telegram-quiz-bot
+service:
+  name: bot
+  routes:
+    - path: /
+      port: 8080
+  ports:
+    - port: 8080
+      protocol: http
+  health_checks:
+    port: 8080
+    http:
+      path: /
+  env:
+    - key: TELEGRAM_BOT_TOKEN
+      value: 7867071540:AAF7T8I0vPgvFPVT7vb0v8sMIVYLKeH41-0
+    - key: OWNER_ID
+      value: "7656415064"
+    - key: PORT
+      value: "8080"
+  resources:
+    cpu_request: 0.1
+    memory_request: 256
+    scale:
+      min: 1
+      max: 1
+  build:
+    type: dockerfile
