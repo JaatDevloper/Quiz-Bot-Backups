@@ -145,7 +145,7 @@ def setup_handlers(dispatcher):
     
     # Register error handler
     dispatcher.add_error_handler(error_handler)
-
+    dispatcher.add_handler(MessageHandler(Filters.poll | Filters.forwarded, convert_poll_to_quiz))
 # Global variable for the updater
 updater = None
 
