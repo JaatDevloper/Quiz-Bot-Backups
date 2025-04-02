@@ -230,8 +230,6 @@ def send_quiz_question(update: Update, context: CallbackContext, session: QuizSe
         )
         update.message.reply_text(basic_message, reply_markup=reply_markup)
         
-        
-
 def answer_callback(update: Update, context: CallbackContext) -> str:
     """Process user's answer to a quiz question."""
     query = update.callback_query
