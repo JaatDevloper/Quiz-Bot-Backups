@@ -280,25 +280,78 @@ def answer_callback(update: Update, context: CallbackContext) -> str:
     
     return "ANSWERING"
 
-def time_up(context: CallbackContext) -> None:
-    """Handle when time is up for a question."""
+def update_timer(context: CallbackContext) -> None:
+    """Update the timer display for a quiz question."""
     job = context.job
-    job_context = job.context
+    data = job.data
     
-    chat_id = job_context['chat_id']
-    message_id = job_context['message_id']
-    user_id = job_context['user_id']
-    question_index = job_context['question_index']
+    chat_id = data["chat_id"]
+    message_id = data["message_id"]
+    user_id = data["user_id"]
+    question_text = data["question_text"]
+    current_question_index = data["question_index"]
+    end_time = data["end_time"]
+    options_markup = data["reply_markup"]
     
-    # Check if the user is still in an active session
+    # Skip if user isn't in active session anymore
     if user_id not in active_sessions:
         return
     
     session = active_sessions[user_id]
     
-    # Check if the user has already moved to another question
-    if session.current_question_index != question_index:
+    # Skip if user has moved on to another question
+    if session.current_question_index != current_question_index:
         return
+    
+    # Calculate remaining time
+    remaining_seconds = max(0, int(end_time - time.time()))
+    
+    # Create a visual progress bar
+    total_time = data["total_time"]
+    progress_blocks = 10
+    blocks_remaining = int((remaining_seconds / total_time) * progress_blocks)
+    progress_bar = "🟩" * blocks_remaining + "⬜" * (progress_blocks - blocks_remaining)
+    
+    # Create warning message based on time remaining
+    warning = ""
+    if remaining_seconds <= 5:
+        warning = f"⚠️ {remaining_seconds}... "
+    elif remaining_seconds <= 10:
+        warning = "⚠️ Almost out of time! "
+    
+    # Format the updated message
+    question_num = current_question_index + 1
+    total_questions = len(session.quiz.questions)
+    
+    updated_text = (
+        f"Question {question_num}/{total_questions}:\n\n"
+        f"{question_text}\n\n"
+        f"{warning}Time remaining: {remaining_seconds} seconds\n"
+        f"{progress_bar}"
+    )
+    
+    try:
+        # Update the message with the new timer
+        context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=updated_text,
+            reply_markup=options_markup
+        )
+        
+        # Schedule next update if more than 1 second remains
+        if remaining_seconds > 1:
+            # Update more frequently in the last 10 seconds
+            next_update = 1 if remaining_seconds <= 10 else 3
+            context.job_queue.run_once(
+                update_timer,
+                next_update,
+                data=data
+            )
+    except Exception as e:
+        # If updating fails, don't break the quiz - just log the error
+        logging.error(f"Error updating timer: {str(e)}")
+        # Don't schedule more updates if there was an error
     
     # Create a fake update to handle the time up event
     class FakeUpdate:
