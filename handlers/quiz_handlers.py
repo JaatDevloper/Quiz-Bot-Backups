@@ -37,15 +37,31 @@ def start(update: Update, context: CallbackContext) -> None:
     """Send a welcome message when the command /start is issued."""
     user = update.effective_user
     
-    # Create or get user
-    get_user(user.id, user.username, user.first_name, user.last_name)
+    # Create a styled welcome message
+    welcome_message = (
+        f"🎓 <b>Welcome to Telegram Quiz Bot!</b> 🎓\n\n"
+        f"Hello {user.first_name}! I'm your interactive quiz companion. Challenge yourself with various quizzes and test your knowledge!\n\n"
+        f"<b>🚀 Key Features:</b>\n"
+        f"• 📋 Multiple choice quizzes on various topics\n"
+        f"• ⏱️ Customizable time limits for each question\n"
+        f"• 📊 Negative marking for wrong answers\n"
+        f"• 📑 PDF generation of your quiz results\n"
+        f"• 📤 Import/Export quizzes from external sources\n\n"
+        f"<b>📝 Commands:</b>\n"
+        f"• /start - Show this welcome message\n"
+        f"• /help - Show detailed help information\n"
+        f"• /list - List all available quizzes\n"
+        f"• /take [quiz_id] - Start a specific quiz\n"
+        f"• /cancel - Cancel current operation\n"
+        f"• /results - Get your quiz results as PDF\n\n"
+        f"<b>👨‍💻 Created by:</b> <a href='https://t.me/JaatCoderX'>@JaatCoderX</a>\n\n"
+        f"<i>Get started by using /list to see available quizzes!</i>"
+    )
     
-    update.message.reply_text(
-        f'Hi {user.first_name}! Welcome to the Quiz Bot.\n\n'
-        'Use /list to see available quizzes\n'
-        'Use /take (quiz_id) to take a quiz\n'
-        'Use /results to see your past results\n'
-        'Use /help to see all available commands'
+    update.message.reply_html(
+        welcome_message,
+        reply_markup=ReplyKeyboardRemove(),
+        disable_web_page_preview=True
     )
 
 def help_command(update: Update, context: CallbackContext) -> None:
