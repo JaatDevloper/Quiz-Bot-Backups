@@ -299,7 +299,7 @@ def answer_callback(update: Update, context: CallbackContext) -> str:
     
     return "ANSWERING"
 
-    def update_timer(context: CallbackContext) -> None:
+def update_timer(context: CallbackContext) -> None:
     """Update the timer display for a quiz question."""
     job = context.job
     data = job.data
