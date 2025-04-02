@@ -153,42 +153,6 @@ def take_quiz(update: Update, context: CallbackContext) -> str:
 
 def send_quiz_question(update: Update, context: CallbackContext, session: QuizSession) -> None:
     """Send the current question to the user."""
-    question = session.get_current_question()
-    
-    if not question:
-        # No more questions, end the quiz
-        end_quiz(update, context, session)
-        return
-    
-    # Get the question-specific time limit or use quiz default
-    time_limit = question.time_limit if question.time_limit is not None else session.quiz.time_limit
-    
-    # Create options buttons
-    keyboard = []
-    for i, option in enumerate(question.options):
-        # Use A, B, C, D for options
-        option_letter = chr(65 + i)  # A=0, B=1, etc.
-        button = InlineKeyboardButton(
-            f"{option_letter}. {option}", 
-            callback_data=f"answer_{i}"
-        )
-        keyboard.append([button])
-    
-    # Add a message indicating the current question number
-    question_number = session.current_question_index + 1
-    total_questions = len(session.quiz.questions)
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Get chat id (could be from a message or callback query)
-    if update.message:
-        chat_id = update.message.chat_id
-        message = update.message.reply_text(
-            f"Question {question_number} of {total_questions}:\n\n"
-            f"{question.text}\n\n"
-            f"Time limit: {time_limit} seconds",
-def send_quiz_question(update: Update, context: CallbackContext, session: QuizSession) -> None:
-    """Send the current question to the user."""
     try:
         question = session.get_current_question()
         
