@@ -176,14 +176,10 @@ def send_quiz_question(update: Update, context: CallbackContext, session: QuizSe
         # Determine which time limit to use for this question
         question_time_limit = question.time_limit if hasattr(question, 'time_limit') and question.time_limit is not None else session.quiz.time_limit
         
-        # Create a visual progress bar - full at the beginning
-        progress_bar = "🟩" * 10
-        
         message = update.message.reply_text(
             f"Question {question_num}/{total_questions}:\n\n"
             f"{question.text}\n\n"
-            f"Time remaining: {question_time_limit} seconds\n"
-            f"{progress_bar}",
+            f"⏱️ Time remaining: {question_time_limit} seconds",
             reply_markup=reply_markup
         )
         
@@ -233,6 +229,8 @@ def send_quiz_question(update: Update, context: CallbackContext, session: QuizSe
             f"Time remaining: {question_time_limit} seconds"
         )
         update.message.reply_text(basic_message, reply_markup=reply_markup)
+        
+        
 
 def answer_callback(update: Update, context: CallbackContext) -> str:
     """Process user's answer to a quiz question."""
