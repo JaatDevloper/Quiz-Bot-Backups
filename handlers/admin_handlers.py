@@ -441,3 +441,116 @@ def edit_question_time(update: Update, context: CallbackContext) -> int:
             "/editquestiontime (quiz_id) (question_index) (time_limit)"
         )
         return
+        
+def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
+    """Convert a forwarded poll to a quiz."""
+    # Check if this is a poll
+    if update.message.poll:
+        poll = update.message.poll
+        
+        # Extract poll information
+        question = poll.question
+        options = [option.text for option in poll.options]
+        
+        # Clean up the question text
+        # Remove patterns like [1/100], [Q1], etc.
+        clean_question = re.sub(r'\[\d+\/\d+\]|\[Q\d+\]', '', question).strip()
+        
+        # Store in context to start quiz creation
+        user_id = update.effective_user.id
+        context.user_data['creating_quiz'] = True
+        context.user_data['quiz_title'] = f"Poll Quiz {int(time.time())}"
+        context.user_data['quiz_description'] = f"Created from poll: {clean_question[:30]}..."
+        context.user_data['quiz'] = Quiz(
+            context.user_data['quiz_title'],
+            context.user_data['quiz_description'],
+            user_id
+        )
+        
+        # Create a new question from the poll
+        # Default correct answer is the first option (user will need to edit this)
+        new_question = Question(clean_question, options, 0)
+        context.user_data['quiz'].add_question(new_question)
+        
+        # Inform user that a quiz has been created from the poll
+        update.message.reply_text(
+            f"📊 Created a quiz from the poll!\n\n"
+            f"*Title*: {context.user_data['quiz_title']}\n"
+            f"*Description*: {context.user_data['quiz_description']}\n\n"
+            f"The quiz has 1 question with {len(options)} options.\n"
+            f"⚠️ *Note*: The first option is set as correct by default.\n\n"
+            f"Do you want to:\n"
+            f"1. Add more questions with /addquestion\n"
+            f"2. Edit correct answer with /editanswer\n"
+            f"3. Finalize the quiz with /finalize",
+            parse_mode='Markdown'
+        )
+        
+        return True
+    
+    # If someone forwards a message from a quiz bot
+    elif update.message.forward_from and update.message.text:
+        if update.message.forward_from.username and "quiz" in update.message.forward_from.username.lower():
+            # Try to extract question and options from text
+            text = update.message.text
+            
+            # Clean up the text (remove patterns like [1/100])
+            clean_text = re.sub(r'\[\d+\/\d+\]|\[Q\d+\]', '', text).strip()
+            
+            # Try to parse the text to extract question and options
+            lines = clean_text.split('\n')
+            if len(lines) >= 2:
+                question = lines[0].strip()
+                options = []
+                correct_option = 0  # Default
+                
+                # Extract options (assuming they're in format "A. Option")
+                for i, line in enumerate(lines[1:]):
+                    line = line.strip()
+                    if line and (line[0].isalpha() or line[0].isdigit()) and len(line) > 2 and line[1] in ['.', ')', ']:
+                        option = line[2:].strip()
+                        options.append(option)
+                        
+                        # Look for indicators of correct answer like "(correct)" or "✓"
+                        if "correct" in line.lower() or "✓" in line or "✅" in line:
+                            correct_option = len(options) - 1
+                
+                if options:
+                    # Store in context to start quiz creation
+                    user_id = update.effective_user.id
+                    context.user_data['creating_quiz'] = True
+                    context.user_data['quiz_title'] = f"Imported Quiz {int(time.time())}"
+                    context.user_data['quiz_description'] = f"Created from imported question: {question[:30]}..."
+                    context.user_data['quiz'] = Quiz(
+                        context.user_data['quiz_title'],
+                        context.user_data['quiz_description'],
+                        user_id
+                    )
+                    
+                    # Create a new question from the extracted text
+                    new_question = Question(question, options, correct_option)
+                    context.user_data['quiz'].add_question(new_question)
+                    
+                    # Inform user
+                    update.message.reply_text(
+                        f"📝 Created a quiz from the imported question!\n\n"
+                        f"*Title*: {context.user_data['quiz_title']}\n"
+                        f"*Description*: {context.user_data['quiz_description']}\n\n"
+                        f"The quiz has 1 question with {len(options)} options.\n"
+                        f"⚠️ *Note*: Option {correct_option+1} is set as correct.\n\n"
+                        f"Do you want to:\n"
+                        f"1. Add more questions with /addquestion\n"
+                        f"2. Edit correct answer with /editanswer\n"
+                        f"3. Finalize the quiz with /finalize",
+                        parse_mode='Markdown'
+                    )
+                    
+                    return True
+            
+            # If parsing failed, inform the user
+            update.message.reply_text(
+                "⚠️ Couldn't extract a quiz from this message. Try forwarding a proper poll or quiz question."
+            )
+            return True
+    
+    return False
