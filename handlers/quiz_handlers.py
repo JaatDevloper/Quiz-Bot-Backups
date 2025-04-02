@@ -35,34 +35,36 @@ active_sessions = {}
 
 def start(update: Update, context: CallbackContext) -> None:
     """Send a welcome message when the command /start is issued."""
-    user = update.effective_user
-    
-    # Create a styled welcome message
-    welcome_message = (
-        f"🎓 <b>Welcome to Telegram Quiz Bot!</b> 🎓\n\n"
-        f"Hello {user.first_name}! I'm your interactive quiz companion. Challenge yourself with various quizzes and test your knowledge!\n\n"
-        f"<b>🚀 Key Features:</b>\n"
-        f"• 📋 Multiple choice quizzes on various topics\n"
-        f"• ⏱️ Customizable time limits for each question\n"
-        f"• 📊 Negative marking for wrong answers\n"
-        f"• 📑 PDF generation of your quiz results\n"
-        f"• 📤 Import/Export quizzes from external sources\n\n"
-        f"<b>📝 Commands:</b>\n"
-        f"• /start - Show this welcome message\n"
-        f"• /help - Show detailed help information\n"
-        f"• /list - List all available quizzes\n"
-        f"• /take [quiz_id] - Start a specific quiz\n"
-        f"• /cancel - Cancel current operation\n"
-        f"• /results - Get your quiz results as PDF\n\n"
-        f"<b>👨‍💻 Created by:</b> <a href='https://t.me/JaatCoderX'>@JaatCoderX</a>\n\n"
-        f"<i>Get started by using /list to see available quizzes!</i>"
-    )
-    
-    update.message.reply_html(
-        welcome_message,
-        reply_markup=ReplyKeyboardRemove(),
-        disable_web_page_preview=True
-    )
+    try:
+        user = update.effective_user
+        
+        # Create a simpler welcome message with basic formatting
+        welcome_message = (
+            "🎓 Welcome to Telegram Quiz Bot! 🎓\n\n"
+            f"Hello {user.first_name}! I'm your interactive quiz companion.\n\n"
+            "🚀 Key Features:\n"
+            "• 📋 Multiple choice quizzes\n"
+            "• ⏱️ Custom time limits per question\n"
+            "• 📊 Negative marking for wrong answers\n"
+            "• 📑 PDF generation of results\n"
+            "• 📤 Import/Export quizzes\n\n"
+            "📝 Commands:\n"
+            "• /start - Show this welcome message\n"
+            "• /help - Get help information\n"
+            "• /list - List available quizzes\n"
+            "• /take [quiz_id] - Start a quiz\n"
+            "• /cancel - Cancel operation\n"
+            "• /results - Get quiz results as PDF\n\n"
+            "👨‍💻 Created by: @JaatCoderX\n\n"
+            "Use /list to see available quizzes!"
+        )
+        
+        # Use plain text for compatibility
+        update.message.reply_text(welcome_message)
+    except Exception as e:
+        import logging
+        logging.error(f"Error in start command: {str(e)}")
+        update.message.reply_text("Welcome to the Quiz Bot! Use /help to see available commands.")
 
 def help_command(update: Update, context: CallbackContext) -> None:
     """Send a help message when the command /help is issued."""
