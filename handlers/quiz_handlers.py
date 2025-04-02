@@ -299,7 +299,9 @@ def answer_callback(update: Update, context: CallbackContext) -> str:
     
     return "ANSWERING"
 
-def update_timer(context: CallbackContext) -> None:
+
+    
+    def update_timer(context: CallbackContext) -> None:
     """Update the timer display for a quiz question."""
     job = context.job
     data = job.data
@@ -325,18 +327,21 @@ def update_timer(context: CallbackContext) -> None:
     # Calculate remaining time
     remaining_seconds = max(0, int(end_time - time.time()))
     
-    # Create a visual progress bar
-    total_time = data["total_time"]
-    progress_blocks = 10
-    blocks_remaining = int((remaining_seconds / total_time) * progress_blocks)
-    progress_bar = "🟩" * blocks_remaining + "⬜" * (progress_blocks - blocks_remaining)
-    
-    # Create warning message based on time remaining
-    warning = ""
+    # Create countdown display
     if remaining_seconds <= 5:
-        warning = f"⚠️ {remaining_seconds}... "
-    elif remaining_seconds <= 10:
-        warning = "⚠️ Almost out of time! "
+        # Use large numbers for final countdown
+        countdown_display = {
+            5: "🕓 5",
+            4: "🕓 4",
+            3: "🕒 3",
+            2: "🕑 2",
+            1: "🕐 1",
+            0: "⏰ TIME'S UP!"
+        }.get(remaining_seconds, str(remaining_seconds))
+        
+        time_text = f"⚠️ {countdown_display} ⚠️"
+    else:
+        time_text = f"⏱️ Time remaining: {remaining_seconds} seconds"
     
     # Format the updated message
     question_num = current_question_index + 1
@@ -345,8 +350,7 @@ def update_timer(context: CallbackContext) -> None:
     updated_text = (
         f"Question {question_num}/{total_questions}:\n\n"
         f"{question_text}\n\n"
-        f"{warning}Time remaining: {remaining_seconds} seconds\n"
-        f"{progress_bar}"
+        f"{time_text}"
     )
     
     try:
@@ -358,8 +362,8 @@ def update_timer(context: CallbackContext) -> None:
             reply_markup=options_markup
         )
         
-        # Schedule next update if more than 1 second remains
-        if remaining_seconds > 1:
+        # Schedule next update if more than 0 seconds remain
+        if remaining_seconds > 0:
             # Update more frequently in the last 10 seconds
             next_update = 1 if remaining_seconds <= 10 else 3
             context.job_queue.run_once(
