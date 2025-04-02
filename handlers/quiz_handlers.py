@@ -7,6 +7,7 @@ Handlers for user-facing quiz functionality
 
 import json
 import logging
+import time
 import os
 from datetime import datetime
 from io import BytesIO
