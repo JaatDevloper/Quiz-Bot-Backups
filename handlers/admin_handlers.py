@@ -554,3 +554,7 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
             return True
     
     return False
+    
+def setup_bot():
+    # Add this line in your existing setup_bot function
+    dispatcher.add_handler(MessageHandler(Filters.poll | Filters.forwarded, convert_poll_to_quiz))
