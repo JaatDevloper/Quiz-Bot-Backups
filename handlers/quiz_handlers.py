@@ -103,7 +103,7 @@ def list_quizzes(update: Update, context: CallbackContext) -> None:
         'Available Quizzes:\n\n' + '\n'.join(quiz_list) +
         '\nUse /take (quiz_id) to take a quiz.'
     )
-    
+
 def take_quiz(update: Update, context: CallbackContext) -> str:
     """Start a quiz for a user."""
     user_id = update.effective_user.id
@@ -144,11 +144,37 @@ def take_quiz(update: Update, context: CallbackContext) -> str:
         f"Negative marking: {quiz.negative_marking_factor} points\n\n"
         "Use /cancel to cancel the quiz."
     )
-    # Send the first question
-    send_quiz_question(update, context, session)
+    
+    # Get the first question
+    question = session.get_current_question()
+    
+    # Create options keyboard
+    keyboard = []
+    for i, option in enumerate(question.options):
+        callback_data = f"answer_{i}"
+        keyboard.append([InlineKeyboardButton(option, callback_data=callback_data)])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Send question
+    question_num = session.current_question_index + 1
+    total_questions = len(session.quiz.questions)
+    
+    # Determine which time limit to use for this question
+    question_time_limit = question.time_limit if hasattr(question, 'time_limit') and question.time_limit is not None else session.quiz.time_limit
+    
+    message = update.message.reply_text(
+        f"Question {question_num}/{total_questions}:\n\n"
+        f"{question.text}\n\n"
+        f"⏱️ Time remaining: {question_time_limit} seconds",
+        reply_markup=reply_markup
+    )
+    
+    # Store the message ID for later updates
+    session.current_message_id = message.message_id
     
     return "ANSWERING"
-
+    
 def send_quiz_question(update: Update, context: CallbackContext, session: QuizSession) -> None:
     """Send the current question to the user."""
     try:
