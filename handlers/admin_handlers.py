@@ -1153,6 +1153,75 @@ def cancel_marathon(update: Update, context: CallbackContext) -> None:
         logger.error(traceback.format_exc())
         if update and update.message:
             update.message.reply_text(f"Error canceling marathon: {str(e)}")
+
+def set_question_correct_answer(update: Update, context: CallbackContext) -> None:
+    """Set the correct answer for the last added question in marathon mode."""
+    try:
+        user_id = update.effective_user.id
+        
+        # Check if user is admin
+        if user_id not in ADMIN_USERS:
+            update.message.reply_text("Sorry, only admins can use this command.")
+            return
+        
+        # Check arguments
+        if not context.args:
+            update.message.reply_text(
+                "Please provide the option number: /correct <option_number>\n"
+                "For example, /correct 2 will set the second option as correct."
+            )
+            return
+        
+        # Parse option number
+        try:
+            option_num = int(context.args[0])
+        except ValueError:
+            update.message.reply_text("Please provide a valid number.")
+            return
+        
+        # Check if in marathon mode
+        if 'marathon_quiz' not in context.user_data:
+            update.message.reply_text(
+                "No active marathon quiz. Start one with /start_marathon first."
+            )
+            return
+        
+        quiz = context.user_data['marathon_quiz']
+        
+        # Check if there are any questions
+        if not quiz.questions:
+            update.message.reply_text("The marathon quiz has no questions yet. Forward a poll first.")
+            return
+        
+        # Get the last question
+        last_question = quiz.questions[-1]
+        
+        # Adjust option number to 0-based index
+        correct_option = option_num - 1
+        
+        # Validate option number
+        if correct_option < 0 or correct_option >= len(last_question.options):
+            update.message.reply_text(
+                f"Invalid option number. Please choose between 1 and {len(last_question.options)}."
+            )
+            return
+        
+        # Set the correct option
+        old_correct = last_question.correct_option + 1  # Convert to 1-based for display
+        last_question.correct_option = correct_option
+        
+        # Confirm the change
+        update.message.reply_text(
+            f"✅ Correct answer updated for the last question:\n\n"
+            f"Question: {last_question.text[:50]}...\n"
+            f"Changed correct answer from option {old_correct} to option {option_num}."
+        )
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"Error in set_question_correct_answer: {str(e)}")
+        logger.error(traceback.format_exc())
+        update.message.reply_text(f"Error setting correct answer: {str(e)}")
         
         
                     
