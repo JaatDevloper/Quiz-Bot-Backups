@@ -174,18 +174,30 @@ def send_quiz_question(update: Update, context: CallbackContext, session: QuizSe
         # Determine which time limit to use for this question
         question_time_limit = question.time_limit if hasattr(question, 'time_limit') and question.time_limit is not None else session.quiz.time_limit
         
-        message = update.message.reply_text(
-            f"Question {question_num}/{total_questions}:\n\n"
-            f"{question.text}\n\n"
-            f"⏱️ Time remaining: {question_time_limit} seconds",
-            reply_markup=reply_markup
-        )
+        # Check if we're using update.message or a fake message
+        if hasattr(update, 'message') and update.message:
+            message = update.message.reply_text(
+                f"Question {question_num}/{total_questions}:\n\n"
+                f"{question.text}\n\n"
+                f"⏱️ Time remaining: {question_time_limit} seconds",
+                reply_markup=reply_markup
+            )
+        else:
+            # This is probably a callback context, use the bot to send
+            message = context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"Question {question_num}/{total_questions}:\n\n"
+                     f"{question.text}\n\n"
+                     f"⏱️ Time remaining: {question_time_limit} seconds",
+                reply_markup=reply_markup
+            )
         
         # Store the message ID for later updates
         session.current_message_id = message.message_id
         
-        # Calculate when the time will be up
-        end_time = time.time() + question_time_limit
+        # Clear any existing timer jobs for this user
+        for job in context.job_queue.get_jobs_by_name(f"timer_{session.user_id}"):
+            job.schedule_removal()
         
         # Set up timer for this question
         context.job_queue.run_once(
@@ -195,27 +207,28 @@ def send_quiz_question(update: Update, context: CallbackContext, session: QuizSe
                 "user_id": session.user_id,
                 "chat_id": update.effective_chat.id,
                 "question_index": session.current_question_index
-            }
+            },
+            name=f"time_up_{session.user_id}_{session.current_question_index}"
         )
         
-        # Set up timer update job
-        # Include all data needed for updates
+        # Set up timer update job with unique name
         timer_data = {
             "user_id": session.user_id,
             "chat_id": update.effective_chat.id,
             "message_id": message.message_id,
             "question_text": question.text,
             "question_index": session.current_question_index,
-            "end_time": end_time,
+            "end_time": time.time() + question_time_limit,
             "total_time": question_time_limit,
             "reply_markup": reply_markup
         }
         
-        # First update in 3 seconds
+        # First update in 3 seconds with unique job name
         context.job_queue.run_once(
             update_timer,
             3,
-            data=timer_data
+            data=timer_data,
+            name=f"timer_{session.user_id}"
         )
     except Exception as e:
         # If something goes wrong, fall back to original behavior
@@ -232,12 +245,22 @@ def send_quiz_question(update: Update, context: CallbackContext, session: QuizSe
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        basic_message = (
-            f"Question {session.current_question_index + 1}/{len(session.quiz.questions)}:\n\n"
-            f"{question.text}\n\n"
-            f"Time remaining: {question_time_limit} seconds"
-        )
-        update.message.reply_text(basic_message, reply_markup=reply_markup)
+        # Check if we're using update.message or a fake message
+        if hasattr(update, 'message') and update.message:
+            update.message.reply_text(
+                f"Question {session.current_question_index + 1}/{len(session.quiz.questions)}:\n\n"
+                f"{question.text}\n\n"
+                f"Time remaining: {question_time_limit} seconds",
+                reply_markup=reply_markup
+            )
+        else:
+            context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"Question {session.current_question_index + 1}/{len(session.quiz.questions)}:\n\n"
+                     f"{question.text}\n\n"
+                     f"Time remaining: {question_time_limit} seconds",
+                reply_markup=reply_markup
+            )
 
 def answer_callback(update: Update, context: CallbackContext) -> str:
     """Process user's answer to a quiz question."""
