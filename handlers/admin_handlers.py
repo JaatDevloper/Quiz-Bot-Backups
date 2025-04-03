@@ -626,6 +626,85 @@ def finalize_command(update: Update, context: CallbackContext) -> None:
     # Clear the quiz creation data
     if 'poll_quiz' in context.user_data:
         del context.user_data['poll_quiz']
+
+def handle_admin_input(update: Update, context: CallbackContext) -> None:
+    """Handle text input during admin operations."""
+    if 'waiting_for_question' in context.user_data and context.user_data['waiting_for_question']:
+        # Process input for adding a question
+        text = update.message.text
+        
+        try:
+            # Parse the input (question, options, correct option)
+            lines = text.strip().split('\n')
+            question_text = lines[0]
+            options_text = lines[1]
+            correct_option = int(lines[2])
+            
+            options = options_text.split('|')
+            
+            # Add the question to the quiz
+            quiz = context.user_data['poll_quiz']
+            
+            question = Question(
+                text=question_text,
+                options=options,
+                correct_option=correct_option
+            )
+            
+            quiz.questions.append(question)
+            
+            # Send confirmation
+            update.message.reply_text(
+                f"Question added!\n\n"
+                f"Total questions: {len(quiz.questions)}\n\n"
+                f"What would you like to do next?\n"
+                f"1. Add more questions with /addquestion\n"
+                f"2. Edit correct answers with /editanswer\n"
+                f"3. Finalize the quiz with /finalize"
+            )
+            
+            # Reset the waiting state
+            context.user_data['waiting_for_question'] = False
+            
+        except Exception as e:
+            update.message.reply_text(
+                "Invalid format. Please use the format:\n\n"
+                "Question text\n"
+                "Option A|Option B|Option C|Option D\n"
+                "Correct option number (0-3)"
+            )
+    
+    elif 'waiting_for_answer_edit' in context.user_data and context.user_data['waiting_for_answer_edit']:
+        # Process input for editing an answer
+        text = update.message.text
+        
+        try:
+            # Parse the input (question number, correct option)
+            parts = text.strip().split()
+            question_num = int(parts[0]) - 1  # Convert to 0-based index
+            correct_option = int(parts[1])
+            
+            # Update the correct option
+            quiz = context.user_data['poll_quiz']
+            quiz.questions[question_num].correct_option = correct_option
+            
+            # Send confirmation
+            update.message.reply_text(
+                f"Answer updated for question {question_num + 1}.\n\n"
+                f"What would you like to do next?\n"
+                f"1. Add more questions with /addquestion\n"
+                f"2. Edit more answers with /editanswer\n"
+                f"3. Finalize the quiz with /finalize"
+            )
+            
+            # Reset the waiting state
+            context.user_data['waiting_for_answer_edit'] = False
+            
+        except Exception as e:
+            update.message.reply_text(
+                "Invalid format. Please use the format: 'question_number correct_option'\n"
+                "Example: '1 2' to set question 1's correct answer to option 2"
+            )
         
         
                     
