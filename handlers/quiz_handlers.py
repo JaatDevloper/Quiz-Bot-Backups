@@ -276,8 +276,11 @@ def answer_callback(update: Update, context: CallbackContext) -> str:
     session = active_sessions[user_id]
     
     # Remove any pending time_up jobs for this question
-    current_jobs = context.job_queue.get_jobs_by_name(f"time_up_{user_id}_{session.current_question_index}")
-    for job in current_jobs:
+    for job in context.job_queue.get_jobs_by_name(f"time_up_{user_id}_{session.current_question_index}"):
+        job.schedule_removal()
+    
+    # Remove any timer update jobs
+    for job in context.job_queue.get_jobs_by_name(f"timer_{user_id}"):
         job.schedule_removal()
     
     # Extract the selected option from callback data
@@ -313,47 +316,49 @@ def answer_callback(update: Update, context: CallbackContext) -> str:
     
     # Check if there are more questions
     if session.get_current_question():
-        # Create a fake message object for send_quiz_question
-        class FakeMessage:
-            def __init__(self, chat_id):
-                self.chat_id = chat_id
-                
-            def reply_text(self, text, reply_markup=None):
-                return context.bot.send_message(
-                    chat_id=self.chat_id,
-                    text=text,
-                    reply_markup=reply_markup
-                )
-        
-        # Create a fake update object with the fake message
-        class FakeUpdate:
-            def __init__(self, message, effective_chat, effective_user):
-                self.message = message
-                self.effective_chat = effective_chat
-                self.effective_user = effective_user
-        
-        fake_message = FakeMessage(query.message.chat_id)
-        fake_update = FakeUpdate(
-            fake_message,
-            query.message.chat,
-            query.from_user
-        )
-        
-        # Send the next question after a short delay
+        # Wait a moment before sending the next question
         context.job_queue.run_once(
-            lambda _: send_quiz_question(fake_update, context, session),
+            lambda _: send_next_question(update, context, user_id),
             2,  # 2 seconds delay
-            context=None
+            name=f"next_question_{user_id}"
         )
     else:
         # End the quiz after a short delay
         context.job_queue.run_once(
             lambda _: end_quiz(update, context, session),
             2,  # 2 seconds delay
-            context=None
+            name=f"end_quiz_{user_id}"
         )
     
     return "ANSWERING"
+
+def send_next_question(update: Update, context: CallbackContext, user_id: int) -> None:
+    """Helper function to send the next question after an answer."""
+    if user_id not in active_sessions:
+        return
+    
+    session = active_sessions[user_id]
+    
+    # Create a fake chat object
+    class FakeChat:
+        def __init__(self, chat_id):
+            self.id = chat_id
+    
+    # Create a fake update object
+    class FakeUpdate:
+        def __init__(self, effective_chat, effective_user):
+            self.effective_chat = effective_chat
+            self.effective_user = effective_user
+            self.message = None
+    
+    # Get the chat ID from the callback query
+    chat_id = update.callback_query.message.chat_id
+    
+    fake_chat = FakeChat(chat_id)
+    fake_update = FakeUpdate(fake_chat, update.callback_query.from_user)
+    
+    # Send the next question
+    send_quiz_question(fake_update, context, session)
 
 def update_timer(context: CallbackContext) -> None:
     """Update the timer display for a quiz question."""
