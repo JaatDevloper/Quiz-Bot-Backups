@@ -25,8 +25,7 @@ from handlers.quiz_handlers import (
 from handlers.admin_handlers import (
     create_quiz, add_question, set_quiz_time, set_negative_marking, 
     finalize_quiz, admin_help, admin_command, edit_quiz_time, edit_question_time,
-    convert_poll_to_quiz, add_question_command, edit_answer_command, finalize_command,
-    handle_admin_input
+    convert_poll_to_quiz
 )
 
 # Import config settings
@@ -69,7 +68,7 @@ def error_handler(update, context):
 def setup_handlers(dispatcher):
     """Set up all handlers for the bot"""
     
-    # First register the poll handler
+    # First register the poll handler - THIS IS THE KEY CHANGE
     dispatcher.add_handler(MessageHandler(Filters.poll | Filters.forwarded, convert_poll_to_quiz))
     
     # Basic command handlers
@@ -79,11 +78,6 @@ def setup_handlers(dispatcher):
     dispatcher.add_handler(CommandHandler("results", get_results))
     dispatcher.add_handler(CommandHandler("admin", admin_command))
     dispatcher.add_handler(CommandHandler("adminhelp", admin_help))
-    
-    # Admin commands for poll-to-quiz conversion
-    dispatcher.add_handler(CommandHandler("addquestion", add_question_command))
-    dispatcher.add_handler(CommandHandler("editanswer", edit_answer_command))
-    dispatcher.add_handler(CommandHandler("finalize", finalize_command))
     
     # Quiz taking conversation handler
     quiz_conv_handler = ConversationHandler(
@@ -148,12 +142,6 @@ def setup_handlers(dispatcher):
     
     # Edit question time handler (direct command, no conversation)
     dispatcher.add_handler(CommandHandler("editquestiontime", edit_question_time))
-    
-    # Handler for admin text input
-    dispatcher.add_handler(MessageHandler(
-        Filters.text & ~Filters.command & Filters.user(ADMIN_USERS),
-        handle_admin_input
-    ))
     
     # Other callback handlers
     dispatcher.add_handler(CallbackQueryHandler(quiz_callback, pattern=r"^quiz_"))
