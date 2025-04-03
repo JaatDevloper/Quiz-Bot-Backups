@@ -550,6 +550,37 @@ def set_negative_marking(update: Update, context: CallbackContext) -> str:
             "Try again or use /cancel to cancel."
         )
         return "SETTING_NEGATIVE_MARKING"
+
+def handle_addquestion(update: Update, context: CallbackContext) -> None:
+    """Add a question to a quiz being created from a poll."""
+    user_id = update.effective_user.id
+    
+    # Get the current quiz creation session for this user
+    # Implementation depends on how you're storing the quiz creation state
+    
+    # Add a new question to the quiz
+    # Implementation depends on your data structures
+
+def handle_editanswer(update: Update, context: CallbackContext) -> None:
+    """Edit the correct answer for a question in a quiz."""
+    user_id = update.effective_user.id
+    
+    # Get the current quiz creation session for this user
+    # Implementation depends on how you're storing the quiz creation state
+    
+    # Parse the message for the answer index
+    # Update the correct answer
+    # Implementation depends on your data structures
+
+def handle_finalize(update: Update, context: CallbackContext) -> None:
+    """Finalize a quiz created from a poll."""
+    user_id = update.effective_user.id
+    
+    # Get the current quiz creation session for this user
+    # Implementation depends on how you're storing the quiz creation state
+    
+    # Finalize the quiz (save to database, etc.)
+    # Implementation depends on your data structures
         
         
                     
