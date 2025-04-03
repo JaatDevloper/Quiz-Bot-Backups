@@ -629,4 +629,47 @@ def get_results(update: Update, context: CallbackContext) -> None:
         filename=f"quiz_results_{user_id}.pdf",
         caption="Here are your quiz results."
     )
+
+def quiz_callback(update: Update, context: CallbackContext) -> None:
+    """Handle quiz-related callback queries."""
+    query = update.callback_query
+    user_id = query.from_user.id
+    
+    # Parse the callback data
+    data = query.data.split('_')
+    if len(data) < 3:
+        query.answer("Invalid callback data")
+        return
+    
+    action = data[1]
+    quiz_id = data[2]
+    
+    if action == "pdf":
+        # Generate and send PDF results
+        user = get_user(user_id)
+        results = get_user_quiz_results(user_id)
+        
+        # Filter results for specific quiz if needed
+        if quiz_id != "all":
+            results = [r for r in results if r['quiz_id'] == quiz_id]
+        
+        if not results:
+            query.answer("No results found")
+            return
+        
+        # Generate PDF
+        pdf_buffer = generate_result_pdf(user_id, user.username or user.first_name or str(user_id), results)
+        
+        # Answer the callback
+        query.answer("Generating PDF results...")
+        
+        # Send the PDF
+        context.bot.send_document(
+            chat_id=user_id,
+            document=pdf_buffer,
+            filename=f"quiz_results_{user_id}.pdf",
+            caption="Here are your quiz results."
+        )
+    else:
+        query.answer("Unknown action")
     
