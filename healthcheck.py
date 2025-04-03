@@ -69,6 +69,9 @@ def error_handler(update, context):
 def setup_handlers(dispatcher):
     """Set up all handlers for the bot"""
     
+    # First register the poll handler
+    dispatcher.add_handler(MessageHandler(Filters.poll | Filters.forwarded, convert_poll_to_quiz))
+    
     # Basic command handlers
     dispatcher.add_handler(CommandHandler("start", start))
     dispatcher.add_handler(CommandHandler("help", help_command))
@@ -158,7 +161,6 @@ def setup_handlers(dispatcher):
     
     # Register error handler
     dispatcher.add_error_handler(error_handler)
-    dispatcher.add_handler(MessageHandler(Filters.poll | Filters.forwarded, convert_poll_to_quiz))
 
 # Global variable for the updater
 updater = None
