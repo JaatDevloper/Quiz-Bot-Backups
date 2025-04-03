@@ -1554,24 +1554,18 @@ def import_questions_from_pdf(update, context):
 
 def extract_text_from_pdf(file_bytes):
     """
-    Extract text from PDF using PyMuPDF
+    Extract text from PDF using PyPDF2
     """
     text = ""
     try:
-        # Save the bytes to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_file.write(file_bytes.getvalue())
-            temp_file_path = temp_file.name
+        # Create a PDF reader object
+        pdf_reader = PyPDF2.PdfReader(file_bytes)
         
-        # Open the PDF with PyMuPDF
-        doc = fitz.open(temp_file_path)
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            text += page.get_text()
-        
-        # Clean up
-        doc.close()
-        os.unlink(temp_file_path)
+        # Extract text from each page
+        for page_num in range(len(pdf_reader.pages)):
+            page = pdf_reader.pages[page_num]
+            text += page.extract_text() + "\n"
+    
     except Exception as e:
         logger.error(f"Error extracting text from PDF: {e}")
         raise
