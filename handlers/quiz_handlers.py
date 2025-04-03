@@ -301,14 +301,6 @@ def answer_callback(update: Update, context: CallbackContext) -> str:
     
     session = active_sessions[user_id]
     
-    # Remove any pending time_up jobs for this question
-    for job in context.job_queue.get_jobs_by_name(f"time_up_{user_id}_{session.current_question_index}"):
-        job.schedule_removal()
-    
-    # Remove any timer update jobs
-    for job in context.job_queue.get_jobs_by_name(f"timer_{user_id}"):
-        job.schedule_removal()
-    
     # Extract the selected option from callback data
     selected_option = int(query.data.split('_')[1])
     
@@ -342,19 +334,35 @@ def answer_callback(update: Update, context: CallbackContext) -> str:
     
     # Check if there are more questions
     if session.get_current_question():
-        # Wait a moment before sending the next question
-        context.job_queue.run_once(
-            lambda _: send_next_question(update, context, user_id),
-            2,  # 2 seconds delay
-            name=f"next_question_{user_id}"
+        # Get the next question
+        question = session.get_current_question()
+        
+        # Create options keyboard
+        keyboard = []
+        for i, option in enumerate(question.options):
+            callback_data = f"answer_{i}"
+            keyboard.append([InlineKeyboardButton(option, callback_data=callback_data)])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Send question
+        question_num = session.current_question_index + 1
+        total_questions = len(session.quiz.questions)
+        
+        # Determine which time limit to use for this question
+        question_time_limit = question.time_limit if hasattr(question, 'time_limit') and question.time_limit is not None else session.quiz.time_limit
+        
+        # Send the next question as a new message
+        context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=f"Question {question_num}/{total_questions}:\n\n"
+                 f"{question.text}\n\n"
+                 f"⏱️ Time remaining: {question_time_limit} seconds",
+            reply_markup=reply_markup
         )
     else:
-        # End the quiz after a short delay
-        context.job_queue.run_once(
-            lambda _: end_quiz(update, context, session),
-            2,  # 2 seconds delay
-            name=f"end_quiz_{user_id}"
-        )
+        # End the quiz
+        end_quiz(update, context, session)
     
     return "ANSWERING"
 
