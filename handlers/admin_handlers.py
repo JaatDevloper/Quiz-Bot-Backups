@@ -389,18 +389,80 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
         if user_id not in ADMIN_USERS:
             return
         
-        # Just acknowledge the poll
+        # Check if the message contains a poll
         if update.message and update.message.poll:
-            update.message.reply_text(f"I received your poll about: {update.message.poll.question}")
-        elif update.message:
-            update.message.reply_text("I received your message, but it doesn't contain a poll.")
-        
+            poll = update.message.poll
+            update.message.reply_text(f"Processing poll: {poll.question[:30]}...")
+            
+            try:
+                # Get poll options
+                options = [option.text for option in poll.options]
+                if len(options) < 2:
+                    update.message.reply_text("Poll must have at least 2 options.")
+                    return
+                
+                # Create a quiz from the poll
+                import uuid
+                from models.quiz import Quiz, Question
+                
+                # Generate a quiz ID
+                quiz_id = str(uuid.uuid4())
+                update.message.reply_text(f"Creating quiz with ID: {quiz_id[:8]}...")
+                
+                # Create quiz title and description
+                title = f"Poll Quiz {quiz_id[-8:]}"
+                description = f"Created from poll: {poll.question[:30]}..."
+                
+                # Create the quiz object
+                quiz = Quiz(
+                    id=quiz_id,
+                    title=title,
+                    description=description,
+                    creator_id=user_id,
+                    time_limit=15,  # Default time limit
+                    negative_marking_factor=0  # Default no negative marking
+                )
+                
+                # Add the question from the poll
+                update.message.reply_text("Adding question to quiz...")
+                
+                question = Question(
+                    text=poll.question,
+                    options=options,
+                    correct_option=0  # Default first option is correct
+                )
+                
+                quiz.questions.append(question)
+                
+                # Save to database
+                update.message.reply_text("Saving quiz to database...")
+                from utils.database import save_quiz
+                saved_id = save_quiz(quiz)
+                
+                # Send confirmation
+                update.message.reply_text(
+                    f"✅ Quiz created successfully!\n\n"
+                    f"Title: {title}\n"
+                    f"Description: {description}\n\n"
+                    f"The quiz has 1 question with {len(options)} options.\n"
+                    f"⚠️ Note: The first option is set as correct by default.\n\n"
+                    f"Users can take this quiz with:\n/take {saved_id}"
+                )
+                
+            except Exception as e:
+                import traceback
+                logger.error(f"Error creating quiz: {str(e)}")
+                logger.error(traceback.format_exc())
+                update.message.reply_text(f"Error creating quiz: {str(e)}")
+        else:
+            update.message.reply_text("No poll found in this message. Please forward a message containing a poll.")
+            
     except Exception as e:
         import traceback
         logger.error(f"Error in convert_poll_to_quiz: {str(e)}")
         logger.error(traceback.format_exc())
-        if update.message:
-            update.message.reply_text("An error occurred. Please try again.")
+        if update and update.message:
+            update.message.reply_text(f"Error processing poll: {str(e)}")
 
 def set_negative_marking(update: Update, context: CallbackContext) -> str:
     """Set the negative marking factor and finalize the quiz."""
