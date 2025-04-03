@@ -57,40 +57,35 @@ def admin_command(update: Update, context: CallbackContext) -> None:
     )
 
 def admin_help(update: Update, context: CallbackContext) -> None:
-    """Show detailed admin help."""
+    """Show admin help message."""
     user_id = update.effective_user.id
     
-    # Check if the user is an admin
     if user_id not in ADMIN_USERS:
-        update.message.reply_text("Sorry, you don't have admin privileges.")
+        update.message.reply_text("You are not authorized to use admin commands.")
         return
     
-    help_text = (
-        "Admin Help\n\n"
-        "Creating a Quiz:\n"
-        "1. Use /create to start creating a quiz\n"
-        "2. Send the quiz title and description in the format: 'Title | Description'\n"
-        "3. Add questions in the format: 'Question text | Option A | Option B | Option C | Option D | CorrectOption(0-3)'\n"
-        "   Note: The correct option is 0-indexed (0 for A, 1 for B, etc.)\n"
-        "4. Use /done when you've added all questions\n"
-        "5. Set the time limit per question in seconds\n"
-        "6. Set the negative marking factor (e.g., 0.25 means -0.25 points for wrong answers)\n\n"
-        
-        "Editing Quiz Times:\n"
-        "- Use /edittime (quiz_id) to change the overall time limit for all questions\n"
-        "- Use /editquestiontime (quiz_id) (question_index) (time_limit) to set a specific time for one question\n"
-        "  Example: /editquestiontime quiz123 2 30\n"
-        "  This sets question #3 (index 2) in quiz 'quiz123' to have a 30-second time limit\n\n"
-        
-        "Importing Quizzes:\n"
-        "- Use /import and then upload a JSON file with quiz data\n"
-        "- The JSON format should match the exported quiz format\n\n"
-        
-        "Note: Question indices start at 0, so the first question has index 0, second has index 1, etc."
+    update.message.reply_text(
+        "🔐 Admin Commands:\n\n"
+        "/create - Create a new quiz\n"
+        "/edittime - Edit time limit for a quiz\n"
+        "/editquestiontime - Edit time limit for a specific question\n"
+        "/start_marathon - Start a marathon quiz (multiple questions)\n"
+        "/finalize_marathon - Save the current marathon quiz\n"
+        "/cancel_marathon - Cancel the current marathon quiz\n"
+        "/correct <number> - Set the correct answer for the last added question\n\n"
+        "🔄 Poll to Quiz:\n"
+        "Forward any poll to convert it to a quiz\n\n"
+        "📑 PDF Import:\n"
+        "Send a PDF file to import questions\n"
+        "PDF should contain questions in format:\n"
+        "Question: What is X?\n"
+        "A) Option 1\n"
+        "B) Option 2\n"
+        "C) Option 3\n"
+        "D) Option 4\n"
+        "Correct: A"
     )
-    
-    update.message.reply_text(help_text)
-    
+
 def create_quiz(update: Update, context: CallbackContext) -> str:
     """Start the quiz creation process."""
     user_id = update.effective_user.id
