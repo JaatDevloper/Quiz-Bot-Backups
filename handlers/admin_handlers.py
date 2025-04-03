@@ -486,7 +486,70 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
                     return True
     
     return False
+
+def set_negative_marking(update: Update, context: CallbackContext) -> str:
+    """Set the negative marking factor and finalize the quiz."""
+    user_id = update.effective_user.id
+    text = update.message.text
+    
+    # Check if quiz creation data exists
+    if user_id not in quiz_creation_data:
+        update.message.reply_text("Something went wrong. Please start again with /create.")
+        return 
+    
+    # Process negative marking
+    try:
+        negative_marking = float(text)
         
+        # Validate negative marking
+        if negative_marking < 0 or negative_marking > 1:
+            update.message.reply_text(
+                "Negative marking factor must be between 0 and 1.\n\n"
+                "Please try again or use /cancel to cancel."
+            )
+            return "SETTING_NEGATIVE_MARKING"
+        
+        # Get quiz creation data
+        creation_data = quiz_creation_data[user_id]
+        title = creation_data['title']
+        description = creation_data['description']
+        time_limit = creation_data['time_limit']
+        
+        # Create the quiz
+        quiz = Quiz(title, description, user_id, time_limit, negative_marking)
+        
+        # Add questions
+        for q_data in creation_data['questions']:
+            question = Question(q_data['text'], q_data['options'], q_data['correct_option'])
+            quiz.add_question(question)
+        
+        # Add to database
+        quiz_id = add_quiz(quiz)
+        
+        # Clean up creation data
+        if user_id in quiz_creation_data:
+            del quiz_creation_data[user_id]
+        
+        update.message.reply_text(
+            f"Quiz created successfully!\n\n"
+            f"Title: {title}\n"
+            f"Description: {description}\n"
+            f"Questions: {len(quiz.questions)}\n"
+            f"Time limit: {time_limit} seconds per question\n"
+            f"Negative marking: {negative_marking}\n\n"
+            f"Quiz ID: {quiz_id}\n\n"
+            f"Users can take this quiz with /take {quiz_id}"
+        )
+        
+        return 
+    
+    except Exception as e:
+        logger.error(f"Error setting negative marking: {e}")
+        update.message.reply_text(
+            "Please enter a valid number for the negative marking factor.\n\n"
+            "Try again or use /cancel to cancel."
+        )
+        return "SETTING_NEGATIVE_MARKING"
         
         
                     
