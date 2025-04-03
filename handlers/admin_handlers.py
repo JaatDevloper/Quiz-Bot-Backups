@@ -375,7 +375,8 @@ def edit_question_time(update: Update, context: CallbackContext) -> int:
             "/editquestiontime (quiz_id) (question_index) (time_limit)"
         )
         return
-        def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
+
+def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
     """Convert a forwarded poll to a quiz."""
     # Check if this is a poll
     if update.message.poll:
@@ -440,7 +441,7 @@ def edit_question_time(update: Update, context: CallbackContext) -> int:
                 # Extract options (assuming they're in format "A. Option")
                 for i, line in enumerate(lines[1:]):
                     line = line.strip()
-                    if line and (line[0].isalpha() or line[0].isdigit()) and len(line) > 2 and line[1] in ['.', ')', ']:
+                    if line and (line[0].isalpha() or line[0].isdigit()) and len(line) > 2 and line[1] in ['.', ')', ']']:
                         option = line[2:].strip()
                         options.append(option)
                         
@@ -481,3 +482,7 @@ def edit_question_time(update: Update, context: CallbackContext) -> int:
                     return True
     
     return False
+        
+        
+        
+                    
