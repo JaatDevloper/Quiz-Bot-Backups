@@ -25,7 +25,7 @@ from handlers.quiz_handlers import (
 from handlers.admin_handlers import (
     create_quiz, add_question, set_quiz_time, set_negative_marking, 
     finalize_quiz, admin_help, admin_command, edit_quiz_time, edit_question_time,
-    convert_poll_to_quiz
+    convert_poll_to_quiz, add_question_command, edit_answer_command, finalize_command
 )
 
 # Import config settings
@@ -75,6 +75,11 @@ def setup_handlers(dispatcher):
     dispatcher.add_handler(CommandHandler("results", get_results))
     dispatcher.add_handler(CommandHandler("admin", admin_command))
     dispatcher.add_handler(CommandHandler("adminhelp", admin_help))
+    
+    # Admin commands for poll-to-quiz conversion
+    dispatcher.add_handler(CommandHandler("addquestion", add_question_command))
+    dispatcher.add_handler(CommandHandler("editanswer", edit_answer_command))
+    dispatcher.add_handler(CommandHandler("finalize", finalize_command))
     
     # Quiz taking conversation handler
     quiz_conv_handler = ConversationHandler(
