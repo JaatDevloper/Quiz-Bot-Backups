@@ -487,62 +487,6 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
     
     return False
 
-def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
-    """Convert a poll to a quiz."""
-    user_id = update.effective_user.id
-    
-    # Check if user is admin
-    if user_id not in ADMIN_USERS:
-        return
-    
-    # Check if the message contains a poll
-    if update.message.poll:
-        poll = update.message.poll
-        
-        # Create a quiz from the poll
-        title = f"Poll Quiz {update.message.message_id}"
-        description = f"Created from poll: {poll.question[:30]}..."
-        
-        # Create the quiz
-        quiz = Quiz(
-            id=str(uuid.uuid4()),
-            title=title,
-            description=description,
-            creator_id=user_id,
-            time_limit=15,  # Default time limit
-            negative_marking_factor=0  # Default no negative marking
-        )
-        
-        # Add the question from the poll
-        options = [option.text for option in poll.options]
-        correct_option = 0  # Default first option is correct
-        
-        question = Question(
-            text=poll.question,
-            options=options,
-            correct_option=correct_option
-        )
-        
-        quiz.questions.append(question)
-        
-        # Store the quiz in user context data - THIS IS THE CRUCIAL LINE TO ADD
-        context.user_data['poll_quiz'] = quiz
-        
-        # Send confirmation
-        update.message.reply_text(
-            f"📊 Created a quiz from the poll!\n\n"
-            f"Title: {title}\n"
-            f"Description: {description}\n\n"
-            f"The quiz has 1 question with {len(options)} options.\n"
-            f"⚠️ Note: The first option is set as correct by default.\n\n"
-            f"Do you want to:\n"
-            f"1. Add more questions with /addquestion\n"
-            f"2. Edit correct answer with /editanswer\n"
-            f"3. Finalize the quiz with /finalize"
-        )
-        
-        return
-
 def set_negative_marking(update: Update, context: CallbackContext) -> str:
     """Set the negative marking factor and finalize the quiz."""
     user_id = update.effective_user.id
