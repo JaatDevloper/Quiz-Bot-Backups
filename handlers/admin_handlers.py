@@ -1222,6 +1222,259 @@ def set_question_correct_answer(update: Update, context: CallbackContext) -> Non
         logger.error(f"Error in set_question_correct_answer: {str(e)}")
         logger.error(traceback.format_exc())
         update.message.reply_text(f"Error setting correct answer: {str(e)}")
+
+def import_questions_from_pdf(update: Update, context: CallbackContext) -> None:
+    """Import questions from a PDF file."""
+    try:
+        user_id = update.effective_user.id
+        
+        # Check if user is admin
+        if user_id not in ADMIN_USERS:
+            update.message.reply_text("Sorry, only admins can use this command.")
+            return
+        
+        # Check if PDF was uploaded
+        if update.message and update.message.document:
+            document = update.message.document
+            
+            # Check if it's a PDF
+            if not document.mime_type.endswith('pdf'):
+                update.message.reply_text("Please upload a PDF file.")
+                return
+            
+            # Download the PDF
+            file_id = document.file_id
+            update.message.reply_text("Downloading PDF file...")
+            
+            file = context.bot.get_file(file_id)
+            pdf_path = f"/tmp/{file_id}.pdf"
+            file.download(pdf_path)
+            
+            update.message.reply_text("Processing PDF file. This may take a moment...")
+            
+            # Extract text from PDF
+            try:
+                import fitz  # PyMuPDF
+                
+                doc = fitz.open(pdf_path)
+                text = ""
+                
+                for page in doc:
+                    text += page.get_text()
+                
+                # Close and remove the file
+                doc.close()
+                import os
+                os.remove(pdf_path)
+                
+                # Parse questions from text
+                questions = parse_questions_from_text(text)
+                
+                if not questions:
+                    update.message.reply_text(
+                        "No questions found in the PDF. Make sure the PDF contains questions in the expected format:\n\n"
+                        "Question: What is the capital of France?\n"
+                        "A) Paris\n"
+                        "B) London\n"
+                        "C) Berlin\n"
+                        "D) Madrid\n"
+                        "Correct: A\n\n"
+                        "or similar formatting."
+                    )
+                    return
+                
+                # Ask if user wants to create a new quiz or add to marathon
+                if 'marathon_quiz' in context.user_data:
+                    keyboard = [
+                        [InlineKeyboardButton("Add to marathon", callback_data=f"pdf_marathon_{file_id}")],
+                        [InlineKeyboardButton("Create new quiz", callback_data=f"pdf_new_{file_id}")]
+                    ]
+                else:
+                    keyboard = [
+                        [InlineKeyboardButton("Create new quiz", callback_data=f"pdf_new_{file_id}")]
+                    ]
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                # Store questions in context for later
+                context.user_data[f'pdf_questions_{file_id}'] = questions
+                
+                update.message.reply_text(
+                    f"Found {len(questions)} questions in the PDF.\n\n"
+                    f"What would you like to do?",
+                    reply_markup=reply_markup
+                )
+                
+            except Exception as e:
+                import traceback
+                logger.error(f"Error processing PDF: {str(e)}")
+                logger.error(traceback.format_exc())
+                update.message.reply_text(f"Error processing PDF: {str(e)}")
+        else:
+            update.message.reply_text(
+                "Please upload a PDF file containing questions.\n\n"
+                "The PDF should contain questions in a format like:\n\n"
+                "Question: What is the capital of France?\n"
+                "A) Paris\n"
+                "B) London\n"
+                "C) Berlin\n"
+                "D) Madrid\n"
+                "Correct: A\n\n"
+                "or similar formatting."
+            )
+            
+    except Exception as e:
+        import traceback
+        logger.error(f"Error in import_questions_from_pdf: {str(e)}")
+        logger.error(traceback.format_exc())
+        update.message.reply_text(f"Error importing questions: {str(e)}")
+
+def handle_pdf_import_callback(update: Update, context: CallbackContext) -> None:
+    """Handle callbacks for PDF question import."""
+    try:
+        query = update.callback_query
+        query.answer()
+        
+        user_id = query.from_user.id
+        
+        # Check if user is admin
+        if user_id not in ADMIN_USERS:
+            query.edit_message_text("Sorry, only admins can use this feature.")
+            return
+        
+        # Parse callback data
+        data = query.data.split('_')
+        action = data[1]  # 'marathon' or 'new'
+        file_id = data[2]  # file ID for retrieving questions
+        
+        # Get questions from context
+        questions_key = f'pdf_questions_{file_id}'
+        if questions_key not in context.user_data:
+            query.edit_message_text("Questions not found. Please upload the PDF again.")
+            return
+        
+        questions = context.user_data[questions_key]
+        
+        if action == 'marathon':
+            # Add to marathon
+            if 'marathon_quiz' not in context.user_data:
+                query.edit_message_text("Marathon quiz not found. Start one with /start_marathon first.")
+                return
+            
+            quiz = context.user_data['marathon_quiz']
+            
+            # Add questions to marathon
+            for q in questions:
+                quiz.questions.append(q)
+            
+            query.edit_message_text(
+                f"✅ Added {len(questions)} questions to marathon quiz.\n\n"
+                f"Marathon quiz now has {len(quiz.questions)} questions in total."
+            )
+            
+        elif action == 'new':
+            # Create a new quiz
+            import uuid
+            from models.quiz import Quiz
+            
+            # Generate a quiz ID
+            quiz_id = str(uuid.uuid4())
+            
+            # Create quiz title and description
+            title = f"PDF Quiz {quiz_id[-8:]}"
+            description = f"Created from PDF with {len(questions)} questions"
+            
+            # Create the quiz object
+            quiz = Quiz(
+                title=title,
+                description=description,
+                creator_id=user_id,
+                time_limit=15,  # Default time limit
+                negative_marking_factor=0  # Default no negative marking
+            )
+            
+            # Set the ID
+            quiz.id = quiz_id
+            
+            # Add questions
+            for q in questions:
+                quiz.questions.append(q)
+            
+            # Save to database
+            from utils.database import add_quiz
+            saved_id = add_quiz(quiz)
+            
+            query.edit_message_text(
+                f"✅ Created new quiz with {len(questions)} questions!\n\n"
+                f"Title: {title}\n"
+                f"Description: {description}\n\n"
+                f"Users can take this quiz with:\n/take {saved_id}"
+            )
+        
+        # Clean up
+        del context.user_data[questions_key]
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"Error in handle_pdf_import_callback: {str(e)}")
+        logger.error(traceback.format_exc())
+        if query:
+            query.edit_message_text(f"Error processing PDF questions: {str(e)}")
+
+def parse_questions_from_text(text):
+    """Parse questions, options, and correct answers from text."""
+    from models.quiz import Question
+    import re
+    
+    # Normalize line endings
+    text = text.replace('\r\n', '\n')
+    
+    # Define patterns for different question formats
+    patterns = [
+        # Format: "Question: text\nA) option1\nB) option2\nC) option3\nD) option4\nCorrect: A"
+        r'(?:Question:|Q:|Q\.|^\d+[\.\)]) (.*?)\s*\n(?:[Aa]\)|[Aa]\.) (.*?)\s*\n(?:[Bb]\)|[Bb]\.) (.*?)\s*\n(?:[Cc]\)|[Cc]\.) (.*?)\s*\n(?:[Dd]\)|[Dd]\.) (.*?)\s*\n(?:Correct:?|Answer:?|Ans:?)\s*([ABCDabcd])',
+        
+        # Format: "Question: text\n1. option1\n2. option2\n3. option3\n4. option4\nCorrect: 1"
+        r'(?:Question:|Q:|Q\.|^\d+[\.\)]) (.*?)\s*\n(?:1[\.\)]) (.*?)\s*\n(?:2[\.\)]) (.*?)\s*\n(?:3[\.\)]) (.*?)\s*\n(?:4[\.\)]) (.*?)\s*\n(?:Correct:?|Answer:?|Ans:?)\s*([1234])',
+        
+        # Format: "Question: text\noption1 (*)\noption2\noption3\noption4"
+        r'(?:Question:|Q:|Q\.|^\d+[\.\)]) (.*?)\s*\n(.*?)(?:\s*\(\*\)|\s*\*)\s*\n(.*?)\s*\n(.*?)\s*\n(.*?)\s*(?:\n|$)'
+    ]
+    
+    questions = []
+    
+    for pattern in patterns:
+        matches = re.finditer(pattern, text, re.MULTILINE | re.DOTALL)
+        
+        for match in matches:
+            if len(match.groups()) >= 5:
+                question_text = match.group(1).strip()
+                options = [
+                    match.group(2).strip(),
+                    match.group(3).strip(),
+                    match.group(4).strip(),
+                    match.group(5).strip()
+                ]
+                
+                # Determine correct option
+                correct_option = 0  # Default to first option
+                if len(match.groups()) >= 6 and match.group(6):
+                    answer_mark = match.group(6).upper()
+                    if answer_mark in 'ABCD':
+                        correct_option = 'ABCD'.index(answer_mark)
+                    elif answer_mark in '1234':
+                        correct_option = int(answer_mark) - 1
+                
+                # Create Question object
+                question = Question(
+                    text=question_text,
+                    options=options,
+                    correct_option=correct_option
+                )
+                
+                questions.append(question)
+    
+    return questions
         
         
                     
