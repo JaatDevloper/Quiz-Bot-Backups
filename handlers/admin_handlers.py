@@ -422,8 +422,7 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
                     negative_marking_factor=0  # Default no negative marking
                 )
                 
-                # Set the ID after creation if needed
-                # If the Quiz class has an id attribute but doesn't accept it in __init__
+                # Set the ID after creation
                 quiz.id = quiz_id
                 
                 # Add the question from the poll
@@ -437,14 +436,10 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
                 
                 quiz.questions.append(question)
                 
-                # Skip database save for now
-                update.message.reply_text("Adding quiz to memory...")
-                
-                # Just store in context (this won't persist, but helpful for testing)
-                # We'll need to modify this to use your actual database save function
-                if 'quizzes' not in context.bot_data:
-                    context.bot_data['quizzes'] = {}
-                context.bot_data['quizzes'][quiz_id] = quiz
+                # Save to database using add_quiz
+                update.message.reply_text("Saving quiz to database...")
+                from utils.database import add_quiz
+                saved_id = add_quiz(quiz)
                 
                 # Send confirmation
                 update.message.reply_text(
@@ -453,7 +448,7 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
                     f"Description: {description}\n\n"
                     f"The quiz has 1 question with {len(options)} options.\n"
                     f"⚠️ Note: The first option is set as correct by default.\n\n"
-                    f"Users can take this quiz with the ID: {quiz_id}"
+                    f"Users can take this quiz with:\n/take {saved_id}"
                 )
                 
             except Exception as e:
