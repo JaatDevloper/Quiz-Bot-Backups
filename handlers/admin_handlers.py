@@ -1553,18 +1553,29 @@ def import_questions_from_pdf(update, context):
 
 def extract_text_from_pdf(file_bytes):
     """
-    Extract text from PDF using PyPDF2
+    Basic text extraction from PDF as binary
+    This is a fallback method when PDF parsing libraries are not available
     """
     text = ""
     try:
-        # Create a PDF reader object
-        pdf_reader = PyPDF2.PdfReader(file_bytes)
+        # Try to get text directly from binary data
+        binary_content = file_bytes.getvalue()
         
-        # Extract text from each page
-        for page_num in range(len(pdf_reader.pages)):
-            page = pdf_reader.pages[page_num]
-            text += page.extract_text() + "\n"
-    
+        # Decode the binary data to text with error handling
+        decoded_text = binary_content.decode('utf-8', errors='ignore')
+        
+        # Basic cleanup - remove non-printable characters
+        cleaned_text = ''.join(c if c.isprintable() or c in '\n\r\t' else ' ' for c in decoded_text)
+        
+        # Extract lines that might be questions
+        lines = []
+        for line in cleaned_text.split('\n'):
+            line = line.strip()
+            if len(line) > 10 and not line.startswith('%') and not line.startswith('/'):
+                lines.append(line)
+        
+        text = '\n'.join(lines)
+        
     except Exception as e:
         logger.error(f"Error extracting text from PDF: {e}")
         raise
