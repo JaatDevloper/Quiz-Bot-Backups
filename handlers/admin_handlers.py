@@ -9,7 +9,7 @@ import logging
 import json
 from io import BytesIO
 
-from telegram import Update,
+from telegram import Update
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext, ConversationHandler
