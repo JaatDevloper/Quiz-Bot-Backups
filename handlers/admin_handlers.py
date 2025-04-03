@@ -581,6 +581,102 @@ def handle_finalize(update: Update, context: CallbackContext) -> None:
     
     # Finalize the quiz (save to database, etc.)
     # Implementation depends on your data structures
+
+# Add these functions to your admin_handlers.py file
+
+def add_question_command(update: Update, context: CallbackContext) -> None:
+    """Add a question to a quiz being created from a poll."""
+    user_id = update.effective_user.id
+    
+    # Check if user is admin
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can use this command.")
+        return
+    
+    # Check if there's an active quiz creation session for this poll
+    if 'poll_quiz' not in context.user_data:
+        update.message.reply_text("No active poll-to-quiz conversion. Please forward a poll first.")
+        return
+    
+    # Ask the user to send the question text
+    update.message.reply_text(
+        "Please send the question text for the new question.\n"
+        "Format: Question text\nOption A|Option B|Option C|Option D\nCorrect Option (0-3)"
+    )
+    
+    # Set the state to wait for the question
+    context.user_data['waiting_for_poll_question'] = True
+
+def edit_answer_command(update: Update, context: CallbackContext) -> None:
+    """Edit the correct answer for a quiz created from a poll."""
+    user_id = update.effective_user.id
+    
+    # Check if user is admin
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can use this command.")
+        return
+    
+    # Check if there's an active quiz creation session for this poll
+    if 'poll_quiz' not in context.user_data:
+        update.message.reply_text("No active poll-to-quiz conversion. Please forward a poll first.")
+        return
+    
+    # Get the current quiz being created
+    quiz = context.user_data['poll_quiz']
+    
+    # Create a keyboard with question numbers
+    keyboard = []
+    for i, question in enumerate(quiz.questions):
+        keyboard.append([InlineKeyboardButton(f"Question {i+1}", callback_data=f"edit_answer_{i}")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Ask the user to select a question
+    update.message.reply_text(
+        "Please select a question to edit the correct answer:",
+        reply_markup=reply_markup
+    )
+
+def finalize_command(update: Update, context: CallbackContext) -> None:
+    """Finalize a quiz created from a poll."""
+    user_id = update.effective_user.id
+    
+    # Check if user is admin
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can use this command.")
+        return
+    
+    # Check if there's an active quiz creation session for this poll
+    if 'poll_quiz' not in context.user_data:
+        update.message.reply_text("No active poll-to-quiz conversion. Please forward a poll first.")
+        return
+    
+    # Get the quiz being created
+    quiz = context.user_data['poll_quiz']
+    
+    # Set default values if not already set
+    if not hasattr(quiz, 'time_limit') or quiz.time_limit is None:
+        quiz.time_limit = 30  # Default time limit of 30 seconds
+    
+    if not hasattr(quiz, 'negative_marking_factor') or quiz.negative_marking_factor is None:
+        quiz.negative_marking_factor = 0  # Default no negative marking
+    
+    # Save the quiz to the database
+    quiz_id = save_quiz(quiz, user_id)
+    
+    # Send confirmation to the user
+    update.message.reply_text(
+        f"Quiz has been finalized and saved!\n\n"
+        f"Title: {quiz.title}\n"
+        f"Description: {quiz.description}\n"
+        f"Questions: {len(quiz.questions)}\n"
+        f"ID: {quiz_id}\n\n"
+        f"Users can take this quiz with:\n/take {quiz_id}"
+    )
+    
+    # Clear the quiz creation data
+    if 'poll_quiz' in context.user_data:
+        del context.user_data['poll_quiz']
         
         
                     
