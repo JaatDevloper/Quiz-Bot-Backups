@@ -382,16 +382,28 @@ def edit_question_time(update: Update, context: CallbackContext) -> int:
 
 def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
     """Convert a poll to a quiz."""
-    user_id = update.effective_user.id
-    
-    # Check if user is admin
-    if user_id not in ADMIN_USERS:
-        return
-    
-    # Check if the message contains a poll
-    if update.message.poll:
-        poll = update.message.poll
+    try:
+        user_id = update.effective_user.id
         
+        # Check if user is admin
+        if user_id not in ADMIN_USERS:
+            return
+        
+        # Check if the message contains a poll
+        poll = None
+        if update.message.poll:
+            poll = update.message.poll
+        elif update.message.forward_from_chat and hasattr(update.message, 'forward_from_message_id'):
+            # This is a forwarded message, try to extract poll
+            try:
+                poll = update.message.poll  # Try to access poll in forwarded message
+            except:
+                update.message.reply_text("Sorry, I couldn't find a poll in the forwarded message.")
+                return
+        
+        if not poll:
+            return
+            
         # Create a quiz from the poll
         title = f"Poll Quiz {update.message.message_id}"
         description = f"Created from poll: {poll.question[:30]}..."
@@ -433,8 +445,9 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
             f"2. Edit correct answer with /editanswer\n"
             f"3. Finalize the quiz with /finalize"
         )
-        
-        return
+    except Exception as e:
+        logger.error(f"Error in convert_poll_to_quiz: {str(e)}")
+        update.message.reply_text("Sorry, an error occurred while processing the poll. Please try again.")
 
 def set_negative_marking(update: Update, context: CallbackContext) -> str:
     """Set the negative marking factor and finalize the quiz."""
