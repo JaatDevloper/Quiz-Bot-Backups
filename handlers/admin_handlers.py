@@ -381,7 +381,7 @@ def edit_question_time(update: Update, context: CallbackContext) -> int:
         return
 
 def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
-    """Convert a poll to a quiz."""
+    """Convert a poll to a quiz or add it to a marathon quiz."""
     try:
         user_id = update.effective_user.id
         
@@ -392,41 +392,18 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
         # Check if the message contains a poll
         if update.message and update.message.poll:
             poll = update.message.poll
-            update.message.reply_text(f"Processing poll: {poll.question[:30]}...")
             
-            try:
-                # Get poll options
+            # Check if there's an active marathon
+            if 'marathon_quiz' in context.user_data:
+                # Add the question to the marathon quiz
+                quiz = context.user_data['marathon_quiz']
+                
+                # Create a question from the poll
+                from models.quiz import Question
                 options = [option.text for option in poll.options]
                 if len(options) < 2:
                     update.message.reply_text("Poll must have at least 2 options.")
                     return
-                
-                # Create a quiz from the poll
-                import uuid
-                from models.quiz import Quiz, Question
-                
-                # Generate a quiz ID
-                quiz_id = str(uuid.uuid4())
-                update.message.reply_text(f"Creating quiz with ID: {quiz_id[:8]}...")
-                
-                # Create quiz title and description
-                title = f"Poll Quiz {quiz_id[-8:]}"
-                description = f"Created from poll: {poll.question[:30]}..."
-                
-                # Create the quiz object - WITHOUT id parameter
-                quiz = Quiz(
-                    title=title,
-                    description=description,
-                    creator_id=user_id,
-                    time_limit=15,  # Default time limit
-                    negative_marking_factor=0  # Default no negative marking
-                )
-                
-                # Set the ID after creation
-                quiz.id = quiz_id
-                
-                # Add the question from the poll
-                update.message.reply_text("Adding question to quiz...")
                 
                 question = Question(
                     text=poll.question,
@@ -434,31 +411,90 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
                     correct_option=0  # Default first option is correct
                 )
                 
+                # Add the question to the quiz
                 quiz.questions.append(question)
-                
-                # Save to database using add_quiz
-                update.message.reply_text("Saving quiz to database...")
-                from utils.database import add_quiz
-                saved_id = add_quiz(quiz)
                 
                 # Send confirmation
                 update.message.reply_text(
-                    f"✅ Quiz created successfully!\n\n"
-                    f"Title: {title}\n"
-                    f"Description: {description}\n\n"
-                    f"The quiz has 1 question with {len(options)} options.\n"
+                    f"➕ Question added to marathon quiz.\n\n"
+                    f"Question: {poll.question[:50]}...\n"
+                    f"Options: {len(options)}\n\n"
+                    f"Total questions: {len(quiz.questions)}\n"
                     f"⚠️ Note: The first option is set as correct by default.\n\n"
-                    f"Users can take this quiz with:\n/take {saved_id}"
+                    f"You can:\n"
+                    f"- Forward more polls to add more questions\n"
+                    f"- Use /finalize_marathon to save the quiz\n"
+                    f"- Use /edit_answer to change correct options"
                 )
                 
-            except Exception as e:
-                import traceback
-                logger.error(f"Error creating quiz: {str(e)}")
-                logger.error(traceback.format_exc())
-                update.message.reply_text(f"Error creating quiz: {str(e)}")
+            else:
+                # Create a standalone quiz as before
+                try:
+                    # Get poll options
+                    options = [option.text for option in poll.options]
+                    if len(options) < 2:
+                        update.message.reply_text("Poll must have at least 2 options.")
+                        return
+                    
+                    # Create a quiz from the poll
+                    import uuid
+                    from models.quiz import Quiz, Question
+                    
+                    # Generate a quiz ID
+                    quiz_id = str(uuid.uuid4())
+                    update.message.reply_text(f"Creating quiz with ID: {quiz_id[:8]}...")
+                    
+                    # Create quiz title and description
+                    title = f"Poll Quiz {quiz_id[-8:]}"
+                    description = f"Created from poll: {poll.question[:30]}..."
+                    
+                    # Create the quiz object - WITHOUT id parameter
+                    quiz = Quiz(
+                        title=title,
+                        description=description,
+                        creator_id=user_id,
+                        time_limit=15,  # Default time limit
+                        negative_marking_factor=0  # Default no negative marking
+                    )
+                    
+                    # Set the ID after creation
+                    quiz.id = quiz_id
+                    
+                    # Add the question from the poll
+                    update.message.reply_text("Adding question to quiz...")
+                    
+                    question = Question(
+                        text=poll.question,
+                        options=options,
+                        correct_option=0  # Default first option is correct
+                    )
+                    
+                    quiz.questions.append(question)
+                    
+                    # Save to database using add_quiz
+                    update.message.reply_text("Saving quiz to database...")
+                    from utils.database import add_quiz
+                    saved_id = add_quiz(quiz)
+                    
+                    # Send confirmation
+                    update.message.reply_text(
+                        f"✅ Quiz created successfully!\n\n"
+                        f"Title: {title}\n"
+                        f"Description: {description}\n\n"
+                        f"The quiz has 1 question with {len(options)} options.\n"
+                        f"⚠️ Note: The first option is set as correct by default.\n\n"
+                        f"Users can take this quiz with:\n/take {saved_id}\n\n"
+                        f"Tip: Use /start_marathon to create a quiz with multiple questions."
+                    )
+                    
+                except Exception as e:
+                    import traceback
+                    logger.error(f"Error creating quiz: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    update.message.reply_text(f"Error creating quiz: {str(e)}")
         else:
             update.message.reply_text("No poll found in this message. Please forward a message containing a poll.")
-            
+                
     except Exception as e:
         import traceback
         logger.error(f"Error in convert_poll_to_quiz: {str(e)}")
