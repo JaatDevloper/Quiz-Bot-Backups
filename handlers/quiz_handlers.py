@@ -59,7 +59,6 @@ def start(update: Update, context: CallbackContext) -> None:
             "👨‍💻 Created by: @JaatCoderX\n\n"
             "Use /list to see available quizzes!"
         )
-        
         # Use plain text for compatibility
         update.message.reply_text(welcome_message)
     except Exception as e:
@@ -104,7 +103,7 @@ def list_quizzes(update: Update, context: CallbackContext) -> None:
         'Available Quizzes:\n\n' + '\n'.join(quiz_list) +
         '\nUse /take (quiz_id) to take a quiz.'
     )
-
+    
 def take_quiz(update: Update, context: CallbackContext) -> str:
     """Start a quiz for a user."""
     user_id = update.effective_user.id
@@ -145,7 +144,6 @@ def take_quiz(update: Update, context: CallbackContext) -> str:
         f"Negative marking: {quiz.negative_marking_factor} points\n\n"
         "Use /cancel to cancel the quiz."
     )
-    
     # Send the first question
     send_quiz_question(update, context, session)
     
@@ -223,13 +221,24 @@ def send_quiz_question(update: Update, context: CallbackContext, session: QuizSe
         # If something goes wrong, fall back to original behavior
         logging.error(f"Error in send_quiz_question: {str(e)}")
         # Attempt to send a basic question without the timer updates
+        question = session.get_current_question()
+        question_time_limit = question.time_limit if hasattr(question, 'time_limit') and question.time_limit is not None else session.quiz.time_limit
+        
+        # Create options keyboard
+        keyboard = []
+        for i, option in enumerate(question.options):
+            callback_data = f"answer_{i}"
+            keyboard.append([InlineKeyboardButton(option, callback_data=callback_data)])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         basic_message = (
             f"Question {session.current_question_index + 1}/{len(session.quiz.questions)}:\n\n"
             f"{question.text}\n\n"
             f"Time remaining: {question_time_limit} seconds"
         )
         update.message.reply_text(basic_message, reply_markup=reply_markup)
-        
+
 def answer_callback(update: Update, context: CallbackContext) -> str:
     """Process user's answer to a quiz question."""
     query = update.callback_query
@@ -281,9 +290,35 @@ def answer_callback(update: Update, context: CallbackContext) -> str:
     
     # Check if there are more questions
     if session.get_current_question():
+        # Create a fake message object for send_quiz_question
+        class FakeMessage:
+            def __init__(self, chat_id):
+                self.chat_id = chat_id
+                
+            def reply_text(self, text, reply_markup=None):
+                return context.bot.send_message(
+                    chat_id=self.chat_id,
+                    text=text,
+                    reply_markup=reply_markup
+                )
+        
+        # Create a fake update object with the fake message
+        class FakeUpdate:
+            def __init__(self, message, effective_chat, effective_user):
+                self.message = message
+                self.effective_chat = effective_chat
+                self.effective_user = effective_user
+        
+        fake_message = FakeMessage(query.message.chat_id)
+        fake_update = FakeUpdate(
+            fake_message,
+            query.message.chat,
+            query.from_user
+        )
+        
         # Send the next question after a short delay
         context.job_queue.run_once(
-            lambda _: send_quiz_question(update, context, session),
+            lambda _: send_quiz_question(fake_update, context, session),
             2,  # 2 seconds delay
             context=None
         )
@@ -371,45 +406,76 @@ def update_timer(context: CallbackContext) -> None:
         # If updating fails, don't break the quiz - just log the error
         logging.error(f"Error updating timer: {str(e)}")
         # Don't schedule more updates if there was an error
+
+def time_up(context: CallbackContext) -> None:
+    """Handle time's up for a quiz question."""
+    job = context.job
+    data = job.data
+    
+    user_id = data["user_id"]
+    chat_id = data["chat_id"]
+    question_index = data["question_index"]
+    
+    # Skip if user isn't in active session anymore
+    if user_id not in active_sessions:
+        return
+    
+    session = active_sessions[user_id]
+    
+    # Skip if user has moved on to another question
+    if session.current_question_index != question_index:
+        return
     
     # Create a fake update to handle the time up event
-    class FakeUpdate:
-        def __init__(self, message, effective_user):
-            self.callback_query = message
-            self.effective_user = effective_user
-            self.message = None
-    
     class FakeUser:
         def __init__(self, user_id):
             self.id = user_id
     
     class FakeMessage:
-        def __init__(self, chat_id, message_id):
+        def __init__(self, chat_id):
             self.chat_id = chat_id
-            self.message_id = message_id
             self.text = f"Time's up! You didn't answer in time."
-        
-        def edit_message_text(self, text, reply_markup=None):
-            self.text = text
-            return self
+            
+        def reply_text(self, text, reply_markup=None):
+            return context.bot.send_message(
+                chat_id=self.chat_id,
+                text=text,
+                reply_markup=reply_markup
+            )
+    
+    class FakeChat:
+        def __init__(self, chat_id):
+            self.id = chat_id
     
     class FakeCallbackQuery:
-        def __init__(self, message, from_user):
-            self.message = message
+        def __init__(self, from_user, message):
             self.from_user = from_user
+            self.message = message
             self.data = f"time_up_{question_index}"
-        
+            
         def answer(self, text):
             pass
-        
+            
         def edit_message_text(self, text, reply_markup=None):
-            self.message.text = text
-            return self.message
+            return context.bot.edit_message_text(
+                chat_id=self.message.chat_id,
+                message_id=session.current_message_id,
+                text=text,
+                reply_markup=reply_markup
+            )
     
-    fake_message = FakeMessage(chat_id, message_id)
+    class FakeUpdate:
+        def __init__(self, callback_query, effective_user, message, effective_chat):
+            self.callback_query = callback_query
+            self.effective_user = effective_user
+            self.message = message
+            self.effective_chat = effective_chat
+    
     fake_user = FakeUser(user_id)
-    fake_callback_query = FakeCallbackQuery(fake_message, fake_user)
-    fake_update = FakeUpdate(fake_callback_query, fake_user)
+    fake_message = FakeMessage(chat_id)
+    fake_chat = FakeChat(chat_id)
+    fake_callback_query = FakeCallbackQuery(fake_user, fake_message)
+    fake_update = FakeUpdate(fake_callback_query, fake_user, fake_message, fake_chat)
     
     # Add time up button
     keyboard = [[InlineKeyboardButton("Continue", callback_data=f"time_up_{question_index}")]]
@@ -420,15 +486,15 @@ def update_timer(context: CallbackContext) -> None:
     if question:
         context.bot.edit_message_text(
             chat_id=chat_id,
-            message_id=message_id,
-            text=f"{fake_message.text}\n\nThe correct answer was: {chr(65 + question.correct_option)}. {question.options[question.correct_option]}",
+            message_id=session.current_message_id,
+            text=f"Time's up! You didn't answer in time.\n\nThe correct answer was: {chr(65 + question.correct_option)}. {question.options[question.correct_option]}",
             reply_markup=reply_markup
         )
     
     # Record no answer (-1)
     session.record_answer(-1, False)
 
-def time_up_callback(update: Update, context: CallbackContext) -> None:
+def time_up_callback(update: Update, context: CallbackContext) -> str:
     """Handle time up callback query."""
     query = update.callback_query
     user_id = query.from_user.id
@@ -449,11 +515,39 @@ def time_up_callback(update: Update, context: CallbackContext) -> None:
     
     # Check if there are more questions
     if session.get_current_question():
+        # Create a fake message object for send_quiz_question
+        class FakeMessage:
+            def __init__(self, chat_id):
+                self.chat_id = chat_id
+                
+            def reply_text(self, text, reply_markup=None):
+                return context.bot.send_message(
+                    chat_id=self.chat_id,
+                    text=text,
+                    reply_markup=reply_markup
+                )
+        
+        # Create a fake update object with the fake message
+        class FakeUpdate:
+            def __init__(self, message, effective_chat, effective_user):
+                self.message = message
+                self.effective_chat = effective_chat
+                self.effective_user = effective_user
+        
+        fake_message = FakeMessage(query.message.chat_id)
+        fake_update = FakeUpdate(
+            fake_message,
+            query.message.chat,
+            query.from_user
+        )
+        
         # Send the next question
-        send_quiz_question(update, context, session)
+        send_quiz_question(fake_update, context, session)
     else:
         # End the quiz
         end_quiz(update, context, session)
+    
+    return "ANSWERING"
 
 def end_quiz(update: Update, context: CallbackContext, session: QuizSession) -> None:
     """End the quiz and show results."""
@@ -535,123 +629,4 @@ def get_results(update: Update, context: CallbackContext) -> None:
         filename=f"quiz_results_{user_id}.pdf",
         caption="Here are your quiz results."
     )
-
-def import_quiz(update: Update, context: CallbackContext) -> str:
-    """Import a quiz from a file."""
-    user_id = update.effective_user.id
     
-    # Check if the user is an admin
-    if user_id not in ADMIN_USERS:
-        update.message.reply_text("Sorry, only admins can import quizzes.")
-        return
-    
-    # Check if this is the initial command or file upload
-    if update.message.document:
-        # User has uploaded a file
-        document = update.message.document
-        
-        # Check the file type (should be JSON)
-        if not document.file_name.endswith('.json'):
-            update.message.reply_text("Please upload a JSON file.")
-            return "IMPORTING"
-        
-        # Download the file
-        file = context.bot.get_file(document.file_id)
-        
-        # Process the file
-        try:
-            # Download the file content
-            file_content = BytesIO()
-            file.download(out=file_content)
-            file_content.seek(0)
-            
-            # Parse the JSON
-            quiz_data = json.loads(file_content.read().decode('utf-8'))
-            
-            # Import the quiz
-            quiz = import_quiz_from_file(quiz_data, user_id)
-            
-            if quiz:
-                update.message.reply_text(
-                    f"Quiz imported successfully!\n\n"
-                    f"Title: {quiz.title}\n"
-                    f"Description: {quiz.description}\n"
-                    f"Questions: {len(quiz.questions)}\n"
-                    f"ID: {quiz.id}\n\n"
-                    f"Use /list to see all quizzes."
-                )
-            else:
-                update.message.reply_text("Failed to import quiz. Invalid format.")
-        
-        except Exception as e:
-            logger.error(f"Error importing quiz: {e}")
-            update.message.reply_text(f"Error importing quiz: {str(e)}")
-        
-        return
-    else:
-        # Initial command
-        update.message.reply_text(
-            "Please upload a JSON file with your quiz data.\n\n"
-            "The file should have the following format:\n"
-            "{\n"
-            '  "title": "Quiz Title",\n'
-            '  "description": "Quiz Description",\n'
-            '  "time_limit": 60,\n'
-            '  "negative_marking_factor": 0.25,\n'
-            '  "questions": [\n'
-            '    {\n'
-            '      "text": "Question text",\n'
-            '      "options": ["Option A", "Option B", "Option C", "Option D"],\n'
-            '      "correct_option": 0,\n'
-            '      "time_limit": 30\n'
-            '    },\n'
-            '    ...\n'
-            '  ]\n'
-            "}\n\n"
-            "Use /cancel to cancel."
-        )
-        
-        return "IMPORTING"
-
-def quiz_callback(update: Update, context: CallbackContext) -> None:
-    """Handle quiz-related callback queries."""
-    query = update.callback_query
-    user_id = query.from_user.id
-    
-    # Parse the callback data
-    data = query.data.split('_')
-    if len(data) < 3:
-        query.answer("Invalid callback data")
-        return
-    
-    action = data[1]
-    quiz_id = data[2]
-    
-    if action == "pdf":
-        # Generate and send PDF results
-        user = get_user(user_id)
-        results = get_user_quiz_results(user_id)
-        
-        # Filter results for specific quiz if needed
-        if quiz_id != "all":
-            results = [r for r in results if r['quiz_id'] == quiz_id]
-        
-        if not results:
-            query.answer("No results found")
-            return
-        
-        # Generate PDF
-        pdf_buffer = generate_result_pdf(user_id, user.username or user.first_name or str(user_id), results)
-        
-        # Answer the callback
-        query.answer("Generating PDF results...")
-        
-        # Send the PDF
-        context.bot.send_document(
-            chat_id=user_id,
-            document=pdf_buffer,
-            filename=f"quiz_results_{user_id}.pdf",
-            caption="Here are your quiz results."
-        )
-    else:
-        query.answer("Unknown action")
