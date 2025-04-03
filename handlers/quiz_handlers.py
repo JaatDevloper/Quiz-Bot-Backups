@@ -672,4 +672,81 @@ def quiz_callback(update: Update, context: CallbackContext) -> None:
         )
     else:
         query.answer("Unknown action")
+
+def import_quiz(update: Update, context: CallbackContext) -> str:
+    """Import a quiz from a file."""
+    user_id = update.effective_user.id
+    
+    # Check if the user is an admin
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can import quizzes.")
+        return
+    
+    # Check if this is the initial command or file upload
+    if update.message.document:
+        # User has uploaded a file
+        document = update.message.document
+        
+        # Check the file type (should be JSON)
+        if not document.file_name.endswith('.json'):
+            update.message.reply_text("Please upload a JSON file.")
+            return "IMPORTING"
+        
+        # Download the file
+        file = context.bot.get_file(document.file_id)
+        
+        # Process the file
+        try:
+            # Download the file content
+            file_content = BytesIO()
+            file.download(out=file_content)
+            file_content.seek(0)
+            
+            # Parse the JSON
+            quiz_data = json.loads(file_content.read().decode('utf-8'))
+            
+            # Import the quiz
+            quiz = import_quiz_from_file(quiz_data, user_id)
+            
+            if quiz:
+                update.message.reply_text(
+                    f"Quiz imported successfully!\n\n"
+                    f"Title: {quiz.title}\n"
+                    f"Description: {quiz.description}\n"
+                    f"Questions: {len(quiz.questions)}\n"
+                    f"ID: {quiz.id}\n\n"
+                    f"Use /list to see all quizzes."
+                )
+            else:
+                update.message.reply_text("Failed to import quiz. Invalid format.")
+        
+        except Exception as e:
+            logger.error(f"Error importing quiz: {e}")
+            update.message.reply_text(f"Error importing quiz: {str(e)}")
+        
+        return
+    else:
+        # Initial command
+        update.message.reply_text(
+            "Please upload a JSON file with your quiz data.\n\n"
+            "The file should have the following format:\n"
+            "{\n"
+            '  "title": "Quiz Title",\n'
+            '  "description": "Quiz Description",\n'
+            '  "time_limit": 60,\n'
+            '  "negative_marking_factor": 0.25,\n'
+            '  "questions": [\n'
+            '    {\n'
+            '      "text": "Question text",\n'
+            '      "options": ["Option A", "Option B", "Option C", "Option D"],\n'
+            '      "correct_option": 0,\n'
+            '      "time_limit": 30\n'
+            '    },\n'
+            '    ...\n'
+            '  ]\n'
+            "}\n\n"
+            "Use /cancel to cancel."
+        )
+        
+        return "IMPORTING"
     
