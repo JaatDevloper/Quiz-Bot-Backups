@@ -86,7 +86,8 @@ def admin_help(update: Update, context: CallbackContext) -> None:
     )
     
     update.message.reply_text(help_text)
-    def create_quiz(update: Update, context: CallbackContext) -> str:
+    
+def create_quiz(update: Update, context: CallbackContext) -> str:
     """Start the quiz creation process."""
     user_id = update.effective_user.id
     
