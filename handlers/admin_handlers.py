@@ -13,7 +13,7 @@ import io
 import re
 import os
 import tempfile
-from PyMuPDF import fitz
+import PyPDF2
 from models.quiz import Quiz, Question
 from utils.database import add_quiz, get_quiz
 from telegram import Update
