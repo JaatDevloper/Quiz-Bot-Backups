@@ -413,15 +413,18 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
                 title = f"Poll Quiz {quiz_id[-8:]}"
                 description = f"Created from poll: {poll.question[:30]}..."
                 
-                # Create the quiz object
+                # Create the quiz object - MODIFIED
+                # Check what parameters your Quiz class actually accepts and adjust accordingly
                 quiz = Quiz(
-                    id=quiz_id,
                     title=title,
                     description=description,
                     creator_id=user_id,
                     time_limit=15,  # Default time limit
                     negative_marking_factor=0  # Default no negative marking
                 )
+                
+                # If the Quiz class doesn't take 'id' as an init parameter, set it after creation
+                quiz.id = quiz_id  # Set ID after creation
                 
                 # Add the question from the poll
                 update.message.reply_text("Adding question to quiz...")
