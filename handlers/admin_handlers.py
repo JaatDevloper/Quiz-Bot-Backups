@@ -9,6 +9,13 @@ import logging
 import json
 from io import BytesIO
 
+import io
+import re
+import os
+import tempfile
+import fitz  # This is from PyMuPDF
+from models.quiz import Quiz, Question
+from utils.database import add_quiz, get_quiz
 from telegram import Update
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -1472,6 +1479,290 @@ def parse_questions_from_text(text):
                 questions.append(question)
     
     return questions
+
+def import_questions_from_pdf(update, context):
+    """
+    Handler function for importing questions from a PDF document
+    """
+    # Check if user is admin
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can import questions from PDFs.")
+        return
+    
+    # Check if a document was provided
+    if not update.message.document or update.message.document.mime_type != 'application/pdf':
+        update.message.reply_text("Please forward a PDF file.")
+        return
+    
+    # Get the document file
+    document = update.message.document
+    file_id = document.file_id
+    
+    update.message.reply_text("Downloading PDF file...")
+    
+    # Download the file
+    file = context.bot.get_file(file_id)
+    file_bytes = io.BytesIO()
+    file.download(out=file_bytes)
+    file_bytes.seek(0)
+    
+    update.message.reply_text("Processing PDF file. This may take a moment...")
+    
+    # Extract text from PDF
+    try:
+        pdf_text = extract_text_from_pdf(file_bytes)
+        
+        # Parse questions from the text
+        questions = parse_questions_from_pdf_text(pdf_text)
+        
+        if not questions:
+            update.message.reply_text("No questions could be extracted from the PDF. "
+                                      "Make sure the format is correct.")
+            return
+        
+        # Store questions temporarily in user data
+        context.user_data['pdf_questions'] = questions
+        
+        # Create a confirmation message with question preview
+        preview_text = "Extracted the following questions:\n\n"
+        for i, question in enumerate(questions[:3], 1):  # Preview first 3 questions
+            preview_text += f"{i}. {question['question']}\n"
+            for j, option in enumerate(question['options'], 1):
+                preview_text += f"   {j}. {option}\n"
+            preview_text += f"   Correct: Option {question['correct_answer']}\n\n"
+        
+        if len(questions) > 3:
+            preview_text += f"... and {len(questions) - 3} more questions\n\n"
+        
+        # Ask user to confirm import and provide a quiz name
+        keyboard = [
+            [InlineKeyboardButton("Create New Quiz", callback_data="pdf_create")],
+            [InlineKeyboardButton("Add to Marathon Quiz", callback_data="pdf_marathon")],
+            [InlineKeyboardButton("Cancel", callback_data="pdf_cancel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        update.message.reply_text(
+            f"{preview_text}What would you like to do with these questions?",
+            reply_markup=reply_markup
+        )
+        
+    except Exception as e:
+        logger.error(f"Error processing PDF: {e}")
+        update.message.reply_text(f"Error processing PDF: {str(e)}")
+
+def extract_text_from_pdf(file_bytes):
+    """
+    Extract text from PDF using PyMuPDF
+    """
+    text = ""
+    try:
+        # Save the bytes to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_file.write(file_bytes.getvalue())
+            temp_file_path = temp_file.name
+        
+        # Open the PDF with PyMuPDF
+        doc = fitz.open(temp_file_path)
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            text += page.get_text()
+        
+        # Clean up
+        doc.close()
+        os.unlink(temp_file_path)
+    except Exception as e:
+        logger.error(f"Error extracting text from PDF: {e}")
+        raise
+    
+    return text
+
+def parse_questions_from_pdf_text(text):
+    """
+    Parse questions from the extracted PDF text
+    
+    Expected format:
+    Q1. Question text
+    A. Option 1
+    B. Option 2
+    C. Option 3
+    D. Option 4
+    Correct: C
+    
+    Or:
+    
+    1. Question text
+    a) Option 1
+    b) Option 2
+    c) Option 3
+    d) Option 4
+    Correct: c
+    """
+    questions = []
+    lines = text.split('\n')
+    
+    current_question = None
+    current_options = []
+    correct_answer = None
+    
+    question_pattern = re.compile(r'^(?:Q)?(\d+)[.)]\s+(.*)')
+    option_pattern1 = re.compile(r'^([A-D])[.)]\s+(.*)')
+    option_pattern2 = re.compile(r'^([a-d])[)]\s+(.*)')
+    correct_pattern = re.compile(r'^[Cc]orrect:?\s*([A-Da-d])')
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Skip empty lines
+        if not line:
+            i += 1
+            continue
+        
+        # Check for question
+        question_match = question_pattern.match(line)
+        if question_match:
+            # Save previous question if exists
+            if current_question and current_options:
+                # Convert letter to number index (1-based)
+                if correct_answer:
+                    if correct_answer.upper() in "ABCD":
+                        correct_idx = ord(correct_answer.upper()) - ord('A') + 1
+                    else:
+                        correct_idx = int(correct_answer)
+                else:
+                    correct_idx = 1  # Default to first option
+                
+                questions.append({
+                    'question': current_question,
+                    'options': current_options,
+                    'correct_answer': correct_idx
+                })
+            
+            # Start new question
+            current_question = question_match.group(2)
+            current_options = []
+            correct_answer = None
+            
+        # Check for options
+        option_match = option_pattern1.match(line) or option_pattern2.match(line)
+        if option_match:
+            current_options.append(option_match.group(2))
+        
+        # Check for correct answer
+        correct_match = correct_pattern.match(line)
+        if correct_match:
+            correct_answer = correct_match.group(1)
+        
+        i += 1
+    
+    # Add the last question
+    if current_question and current_options:
+        if correct_answer:
+            if correct_answer.upper() in "ABCD":
+                correct_idx = ord(correct_answer.upper()) - ord('A') + 1
+            else:
+                correct_idx = int(correct_answer)
+        else:
+            correct_idx = 1  # Default to first option
+        
+        questions.append({
+            'question': current_question,
+            'options': current_options,
+            'correct_answer': correct_idx
+        })
+    
+    return questions
+
+def handle_pdf_import_callback(update, context):
+    """
+    Handle callback queries from PDF import buttons
+    """
+    query = update.callback_query
+    query.answer()
+    
+    action = query.data.split('_')[1]
+    
+    if 'pdf_questions' not in context.user_data:
+        query.edit_message_text("Session expired. Please upload your PDF again.")
+        return
+    
+    questions = context.user_data['pdf_questions']
+    
+    if action == 'cancel':
+        query.edit_message_text("PDF import cancelled.")
+        return
+    
+    if action == 'create':
+        # Ask for quiz name
+        keyboard = []
+        for i in range(1, 6):
+            keyboard.append([InlineKeyboardButton(f"Quiz {i}", callback_data=f"pdf_name_Quiz {i}")])
+        
+        keyboard.append([InlineKeyboardButton("Custom Name", callback_data="pdf_custom_name")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        query.edit_message_text("Please select a name for your quiz or choose 'Custom Name':", 
+                              reply_markup=reply_markup)
+        return
+    
+    if action == 'marathon':
+        # Check if there's an ongoing marathon
+        if 'marathon_quiz' not in context.user_data:
+            query.edit_message_text("No marathon quiz in progress. Please start a marathon first with /start_marathon")
+            return
+        
+        # Add all questions to the marathon
+        marathon_quiz = context.user_data['marathon_quiz']
+        for q_data in questions:
+            question = Question(
+                q_data['question'],
+                q_data['options'],
+                q_data['correct_answer'] - 1  # Convert to 0-based index
+            )
+            marathon_quiz.add_question(question)
+        
+        query.edit_message_text(f"Added {len(questions)} questions to your marathon quiz. "
+                              f"Current question count: {len(marathon_quiz.questions)}")
+        return
+    
+    if action.startswith('name_'):
+        # Create a new quiz with the selected name
+        quiz_name = action.split('name_')[1]
+        create_quiz_from_pdf(context, quiz_name, questions)
+        query.edit_message_text(f"Quiz '{quiz_name}' created with {len(questions)} questions!")
+        return
+    
+    if action == 'custom_name':
+        # This requires the user to send a text message with the name
+        # We'll need to handle this in a conversation
+        context.user_data['waiting_for_pdf_quiz_name'] = True
+        query.edit_message_text("Please reply with a name for your quiz:")
+        return
+
+def create_quiz_from_pdf(context, quiz_name, questions_data):
+    """
+    Create a new quiz from PDF-extracted questions
+    """
+    new_quiz = Quiz(quiz_name)
+    
+    # Add questions
+    for q_data in questions_data:
+        question = Question(
+            q_data['question'],
+            q_data['options'],
+            q_data['correct_answer'] - 1  # Convert to 0-based index
+        )
+        new_quiz.add_question(question)
+    
+    # Set default time (30 seconds per question)
+    new_quiz.time = len(new_quiz.questions) * 30
+    
+    # Save to database
+    add_quiz(new_quiz)
+    
+    return new_quiz
         
         
                     
