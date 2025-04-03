@@ -735,6 +735,247 @@ def handle_admin_input(update: Update, context: CallbackContext) -> None:
                 "Invalid format. Please use the format: 'question_number correct_option'\n"
                 "Example: '1 2' to set question 1's correct answer to option 2"
             )
+
+def start_marathon(update: Update, context: CallbackContext) -> None:
+    """Start a new quiz marathon."""
+    user_id = update.effective_user.id
+    
+    # Check if user is admin
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can use this command.")
+        return
+    
+    # Check if there's already an active marathon
+    if 'marathon_quiz' in context.user_data:
+        update.message.reply_text(
+            "A quiz marathon is already in progress. You can:\n"
+            "- Add more questions by forwarding polls\n"
+            "- Finalize the quiz with /finalize_marathon\n"
+            "- Cancel the current marathon with /cancel_marathon"
+        )
+        return
+    
+    # Get title and description from the command
+    args = update.message.text.split(' ', 1)
+    title = f"Marathon Quiz {datetime.now().strftime('%Y-%m-%d')}"
+    description = "A quiz created from multiple polls"
+    
+    if len(args) > 1:
+        title_desc = args[1].split('|', 1)
+        title = title_desc[0].strip()
+        if len(title_desc) > 1:
+            description = title_desc[1].strip()
+    
+    # Create a new quiz
+    import uuid
+    from models.quiz import Quiz
+    
+    quiz = Quiz(
+        title=title,
+        description=description,
+        creator_id=user_id,
+        time_limit=15,  # Default time limit
+        negative_marking_factor=0  # Default no negative marking
+    )
+    
+    # Set the ID
+    quiz.id = str(uuid.uuid4())
+    
+    # Store the quiz in user context
+    context.user_data['marathon_quiz'] = quiz
+    
+    update.message.reply_text(
+        f"🏁 Marathon quiz started!\n\n"
+        f"Title: {title}\n"
+        f"Description: {description}\n\n"
+        f"Forward polls to add questions.\n"
+        f"When you're done, use /finalize_marathon to save the quiz."
+    )
+
+def finalize_marathon(update: Update, context: CallbackContext) -> None:
+    """Finalize and save the marathon quiz."""
+    user_id = update.effective_user.id
+    
+    # Check if user is admin
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can use this command.")
+        return
+    
+    # Check if there's an active marathon
+    if 'marathon_quiz' not in context.user_data:
+        update.message.reply_text("No active marathon quiz. Start one with /start_marathon")
+        return
+    
+    quiz = context.user_data['marathon_quiz']
+    
+    # Make sure there are questions
+    if not quiz.questions:
+        update.message.reply_text("The quiz has no questions. Please forward polls to add questions.")
+        return
+    
+    # Save the quiz
+    from utils.database import add_quiz
+    saved_id = add_quiz(quiz)
+    
+    # Send confirmation
+    update.message.reply_text(
+        f"✅ Marathon quiz finalized and saved!\n\n"
+        f"Title: {quiz.title}\n"
+        f"Description: {quiz.description}\n"
+        f"Total questions: {len(quiz.questions)}\n\n"
+        f"Users can take this quiz with:\n/take {saved_id}"
+    )
+    
+    # Clear the marathon quiz
+    del context.user_data['marathon_quiz']
+
+def cancel_marathon(update: Update, context: CallbackContext) -> None:
+    """Cancel the current marathon quiz."""
+    user_id = update.effective_user.id
+    
+    # Check if user is admin
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can use this command.")
+        return
+    
+    # Check if there's an active marathon
+    if 'marathon_quiz' not in context.user_data:
+        update.message.reply_text("No active marathon quiz to cancel.")
+        return
+    
+    # Get the quiz info for feedback
+    quiz = context.user_data['marathon_quiz']
+    question_count = len(quiz.questions)
+    
+    # Clear the marathon quiz
+    del context.user_data['marathon_quiz']
+    
+    update.message.reply_text(
+        f"❌ Marathon quiz canceled.\n"
+        f"The quiz with {question_count} questions has been discarded."
+    )
+
+def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
+    """Convert a poll to a quiz or add it to a marathon quiz."""
+    try:
+        user_id = update.effective_user.id
+        
+        # Check if user is admin
+        if user_id not in ADMIN_USERS:
+            return
+        
+        # Check if the message contains a poll
+        if update.message and update.message.poll:
+            poll = update.message.poll
+            
+            # Check if there's an active marathon
+            if 'marathon_quiz' in context.user_data:
+                # Add the question to the marathon quiz
+                quiz = context.user_data['marathon_quiz']
+                
+                # Create a question from the poll
+                from models.quiz import Question
+                options = [option.text for option in poll.options]
+                if len(options) < 2:
+                    update.message.reply_text("Poll must have at least 2 options.")
+                    return
+                
+                question = Question(
+                    text=poll.question,
+                    options=options,
+                    correct_option=0  # Default first option is correct
+                )
+                
+                # Add the question to the quiz
+                quiz.questions.append(question)
+                
+                # Send confirmation
+                update.message.reply_text(
+                    f"➕ Question added to marathon quiz.\n\n"
+                    f"Question: {poll.question[:50]}...\n"
+                    f"Options: {len(options)}\n\n"
+                    f"Total questions: {len(quiz.questions)}\n"
+                    f"⚠️ Note: The first option is set as correct by default.\n\n"
+                    f"You can:\n"
+                    f"- Forward more polls to add more questions\n"
+                    f"- Use /finalize_marathon to save the quiz\n"
+                    f"- Use /edit_answer to change correct options"
+                )
+                
+            else:
+                # Create a standalone quiz as before
+                try:
+                    # Get poll options
+                    options = [option.text for option in poll.options]
+                    if len(options) < 2:
+                        update.message.reply_text("Poll must have at least 2 options.")
+                        return
+                    
+                    # Create a quiz from the poll
+                    import uuid
+                    from models.quiz import Quiz, Question
+                    
+                    # Generate a quiz ID
+                    quiz_id = str(uuid.uuid4())
+                    update.message.reply_text(f"Creating quiz with ID: {quiz_id[:8]}...")
+                    
+                    # Create quiz title and description
+                    title = f"Poll Quiz {quiz_id[-8:]}"
+                    description = f"Created from poll: {poll.question[:30]}..."
+                    
+                    # Create the quiz object - WITHOUT id parameter
+                    quiz = Quiz(
+                        title=title,
+                        description=description,
+                        creator_id=user_id,
+                        time_limit=15,  # Default time limit
+                        negative_marking_factor=0  # Default no negative marking
+                    )
+                    
+                    # Set the ID after creation
+                    quiz.id = quiz_id
+                    
+                    # Add the question from the poll
+                    update.message.reply_text("Adding question to quiz...")
+                    
+                    question = Question(
+                        text=poll.question,
+                        options=options,
+                        correct_option=0  # Default first option is correct
+                    )
+                    
+                    quiz.questions.append(question)
+                    
+                    # Save to database using add_quiz
+                    update.message.reply_text("Saving quiz to database...")
+                    from utils.database import add_quiz
+                    saved_id = add_quiz(quiz)
+                    
+                    # Send confirmation
+                    update.message.reply_text(
+                        f"✅ Quiz created successfully!\n\n"
+                        f"Title: {title}\n"
+                        f"Description: {description}\n\n"
+                        f"The quiz has 1 question with {len(options)} options.\n"
+                        f"⚠️ Note: The first option is set as correct by default.\n\n"
+                        f"Users can take this quiz with:\n/take {saved_id}\n\n"
+                        f"Tip: Use /start_marathon to create a quiz with multiple questions."
+                    )
+                    
+                except Exception as e:
+                    import traceback
+                    logger.error(f"Error creating quiz: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    update.message.reply_text(f"Error creating quiz: {str(e)}")
+        else:
+            update.message.reply_text("No poll found in this message. Please forward a message containing a poll.")
+                
+    except Exception as e:
+        import traceback
+        logger.error(f"Error in convert_poll_to_quiz: {str(e)}")
+        logger.error(traceback.format_exc())
+        if update and update.message:
+            update.message.reply_text(f"Error processing poll: {str(e)}")
         
         
                     
