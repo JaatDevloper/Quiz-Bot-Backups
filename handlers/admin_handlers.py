@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Dictionary to store quiz creation data
 quiz_creation_data = {}
+
 def admin_command(update: Update, context: CallbackContext) -> None:
     """Show admin commands when /admin is issued."""
     user_id = update.effective_user.id
@@ -273,7 +274,8 @@ def set_quiz_time(update: Update, context: CallbackContext) -> str:
             "Try again or use /cancel to cancel."
         )
         return "SETTING_TIME"
-        def edit_quiz_time(update: Update, context: CallbackContext) -> str:
+        
+def edit_quiz_time(update: Update, context: CallbackContext) -> str:
     """Start the process to edit a quiz's time limit."""
     user_id = update.effective_user.id
     
