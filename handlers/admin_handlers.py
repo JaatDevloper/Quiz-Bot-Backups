@@ -383,69 +383,24 @@ def edit_question_time(update: Update, context: CallbackContext) -> int:
 def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
     """Convert a poll to a quiz."""
     try:
-        # Get user ID
         user_id = update.effective_user.id
         
         # Check if user is admin
         if user_id not in ADMIN_USERS:
             return
         
-        # Get the poll
-        if not update.message or not update.message.poll:
-            logger.error("No poll found in message")
-            update.message.reply_text("No poll found. Please send a poll.")
-            return
-        
-        poll = update.message.poll
-        logger.info(f"Processing poll: {poll.question}")
-        
-        # Create a quiz from the poll
-        import uuid
-        from models.quiz import Quiz, Question
-        
-        quiz_id = str(uuid.uuid4())
-        title = f"Poll Quiz {quiz_id[-8:]}"
-        description = f"Created from poll: {poll.question[:30]}..."
-        
-        # Create the quiz
-        quiz = Quiz(
-            id=quiz_id,
-            title=title,
-            description=description,
-            creator_id=user_id,
-            time_limit=15,
-            negative_marking_factor=0
-        )
-        
-        # Add the question from poll
-        options = [option.text for option in poll.options]
-        correct_option = 0  # Default first option is correct
-        
-        question = Question(
-            text=poll.question,
-            options=options,
-            correct_option=correct_option
-        )
-        
-        quiz.questions.append(question)
-        
-        # Save to database directly - simpler approach
-        from utils.database import save_quiz
-        saved_id = save_quiz(quiz)
-        
-        # Send confirmation with take command
-        update.message.reply_text(
-            f"✅ Quiz created from poll!\n\n"
-            f"Title: {title}\n"
-            f"Questions: 1\n\n"
-            f"Users can take this quiz with:\n/take {saved_id}"
-        )
+        # Just acknowledge the poll
+        if update.message and update.message.poll:
+            update.message.reply_text(f"I received your poll about: {update.message.poll.question}")
+        elif update.message:
+            update.message.reply_text("I received your message, but it doesn't contain a poll.")
         
     except Exception as e:
         import traceback
         logger.error(f"Error in convert_poll_to_quiz: {str(e)}")
         logger.error(traceback.format_exc())
-        update.message.reply_text("Sorry, an error occurred while processing the poll. Please try again.")
+        if update.message:
+            update.message.reply_text("An error occurred. Please try again.")
 
 def set_negative_marking(update: Update, context: CallbackContext) -> str:
     """Set the negative marking factor and finalize the quiz."""
