@@ -509,7 +509,7 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
                 # Extract options (assuming they're in format "A. Option")
                 for i, line in enumerate(lines[1:]):
                     line = line.strip()
-                if line and (line[0].isalpha() or line[0].isdigit()) and len(line) > 2 and line[1] in ['.', ')', ']:
+             if line and (line[0].isalpha() or line[0].isdigit()) and len(line) > 2 and line[1] in ['.', ')', ']:
                         option = line[2:].strip()
                         options.append(option)
                         
