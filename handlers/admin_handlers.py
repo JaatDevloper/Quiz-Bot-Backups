@@ -381,111 +381,60 @@ def edit_question_time(update: Update, context: CallbackContext) -> int:
         return
 
 def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
-    """Convert a forwarded poll to a quiz."""
-    # Check if this is a poll
+    """Convert a poll to a quiz."""
+    user_id = update.effective_user.id
+    
+    # Check if user is admin
+    if user_id not in ADMIN_USERS:
+        return
+    
+    # Check if the message contains a poll
     if update.message.poll:
         poll = update.message.poll
         
-        # Extract poll information
-        question = poll.question
-        options = [option.text for option in poll.options]
+        # Create a quiz from the poll
+        title = f"Poll Quiz {update.message.message_id}"
+        description = f"Created from poll: {poll.question[:30]}..."
         
-        # Clean up the question text
-        # Remove patterns like [1/100], [Q1], etc.
-        clean_question = re.sub(r'\[\d+\/\d+\]|\[Q\d+\]', '', question).strip()
-        
-        # Store in context to start quiz creation
-        user_id = update.effective_user.id
-        context.user_data['creating_quiz'] = True
-        context.user_data['quiz_title'] = f"Poll Quiz {int(time.time())}"
-        context.user_data['quiz_description'] = f"Created from poll: {clean_question[:30]}..."
-        context.user_data['quiz'] = Quiz(
-            context.user_data['quiz_title'],
-            context.user_data['quiz_description'],
-            user_id
+        # Create the quiz
+        quiz = Quiz(
+            id=str(uuid.uuid4()),
+            title=title,
+            description=description,
+            creator_id=user_id,
+            time_limit=15,  # Default time limit
+            negative_marking_factor=0  # Default no negative marking
         )
         
-        # Create a new question from the poll
-        # Default correct answer is the first option (user will need to edit this)
-        new_question = Question(clean_question, options, 0)
-        context.user_data['quiz'].add_question(new_question)
+        # Add the question from the poll
+        options = [option.text for option in poll.options]
+        correct_option = 0  # Default first option is correct
         
-        # Inform user that a quiz has been created from the poll
+        question = Question(
+            text=poll.question,
+            options=options,
+            correct_option=correct_option
+        )
+        
+        quiz.questions.append(question)
+        
+        # Store the quiz in user context data
+        context.user_data['poll_quiz'] = quiz
+        
+        # Send confirmation
         update.message.reply_text(
             f"📊 Created a quiz from the poll!\n\n"
-            f"*Title*: {context.user_data['quiz_title']}\n"
-            f"*Description*: {context.user_data['quiz_description']}\n\n"
+            f"Title: {title}\n"
+            f"Description: {description}\n\n"
             f"The quiz has 1 question with {len(options)} options.\n"
-            f"⚠️ *Note*: The first option is set as correct by default.\n\n"
+            f"⚠️ Note: The first option is set as correct by default.\n\n"
             f"Do you want to:\n"
             f"1. Add more questions with /addquestion\n"
             f"2. Edit correct answer with /editanswer\n"
-            f"3. Finalize the quiz with /finalize",
-            parse_mode='Markdown'
+            f"3. Finalize the quiz with /finalize"
         )
         
-        return True
-    
-    # If someone forwards a message from a quiz bot
-    elif update.message.forward_from and update.message.text:
-        if update.message.forward_from.username and "quiz" in update.message.forward_from.username.lower():
-            # Try to extract question and options from text
-            text = update.message.text
-            
-            # Clean up the text (remove patterns like [1/100])
-            clean_text = re.sub(r'\[\d+\/\d+\]|\[Q\d+\]', '', text).strip()
-            
-            # Try to parse the text to extract question and options
-            lines = clean_text.split('\n')
-            if len(lines) >= 2:
-                question = lines[0].strip()
-                options = []
-                correct_option = 0  # Default
-                
-                # Extract options (assuming they're in format "A. Option")
-                for i, line in enumerate(lines[1:]):
-                    line = line.strip()
-                    if line and (line[0].isalpha() or line[0].isdigit()) and len(line) > 2 and line[1] in ['.', ')', ']']:
-                        option = line[2:].strip()
-                        options.append(option)
-                        
-                        # Look for indicators of correct answer like "(correct)" or "✓"
-                        if "correct" in line.lower() or "✓" in line or "✅" in line:
-                            correct_option = len(options) - 1
-                
-                if options:
-                    # Store in context to start quiz creation
-                    user_id = update.effective_user.id
-                    context.user_data['creating_quiz'] = True
-                    context.user_data['quiz_title'] = f"Imported Quiz {int(time.time())}"
-                    context.user_data['quiz_description'] = f"Created from imported message: {question[:30]}..."
-                    context.user_data['quiz'] = Quiz(
-                        context.user_data['quiz_title'],
-                        context.user_data['quiz_description'],
-                        user_id
-                    )
-                    
-                    # Create a new question
-                    new_question = Question(question, options, correct_option)
-                    context.user_data['quiz'].add_question(new_question)
-                    
-                    # Inform user that a quiz has been created
-                    update.message.reply_text(
-                        f"📝 Created a quiz from the forwarded message!\n\n"
-                        f"*Title*: {context.user_data['quiz_title']}\n"
-                        f"*Description*: {context.user_data['quiz_description']}\n\n"
-                        f"The quiz has 1 question with {len(options)} options.\n"
-                        f"⚠️ *Note*: Option {chr(65+correct_option)} is set as correct by default.\n\n"
-                        f"Do you want to:\n"
-                        f"1. Add more questions with /addquestion\n"
-                        f"2. Edit correct answer with /editanswer\n"
-                        f"3. Finalize the quiz with /finalize",
-                        parse_mode='Markdown'
-                    )
-                    
-                    return True
-    
-    return False
+        return
 
 def set_negative_marking(update: Update, context: CallbackContext) -> str:
     """Set the negative marking factor and finalize the quiz."""
