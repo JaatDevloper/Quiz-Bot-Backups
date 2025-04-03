@@ -24,7 +24,8 @@ from handlers.quiz_handlers import (
 )
 from handlers.admin_handlers import (
     create_quiz, add_question, set_quiz_time, set_negative_marking, 
-    finalize_quiz, admin_help, admin_command, edit_quiz_time, edit_question_time
+    finalize_quiz, admin_help, admin_command, edit_quiz_time, edit_question_time,
+    convert_poll_to_quiz
 )
 
 # Import config settings
@@ -146,6 +147,7 @@ def setup_handlers(dispatcher):
     # Register error handler
     dispatcher.add_error_handler(error_handler)
     dispatcher.add_handler(MessageHandler(Filters.poll | Filters.forwarded, convert_poll_to_quiz))
+
 # Global variable for the updater
 updater = None
 
