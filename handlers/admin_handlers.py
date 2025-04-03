@@ -383,32 +383,41 @@ def edit_question_time(update: Update, context: CallbackContext) -> int:
 def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
     """Convert a poll to a quiz."""
     try:
+        # Get user ID
         user_id = update.effective_user.id
         
         # Check if user is admin
         if user_id not in ADMIN_USERS:
             return
         
-        # Check if the message contains a poll
+        # Initialize variables
         poll = None
-        if update.message.poll:
-            poll = update.message.poll
-        elif update.message.forward_from_chat and hasattr(update.message, 'forward_from_message_id'):
-            # This is a forwarded message, try to extract poll
-            try:
-                poll = update.message.poll  # Try to access poll in forwarded message
-            except:
-                update.message.reply_text("Sorry, I couldn't find a poll in the forwarded message.")
-                return
         
+        # Check if the message contains a poll
+        if update.message and update.message.poll:
+            poll = update.message.poll
+        # Check if it's a forwarded message
+        elif update.message and update.message.forward_date:
+            if hasattr(update.message, 'poll') and update.message.poll:
+                poll = update.message.poll
+        
+        # If no poll was found, exit
         if not poll:
+            update.message.reply_text("No poll found in this message. Please forward a message containing a poll.")
             return
-            
+        
+        # Log poll information for debugging
+        logger.info(f"Poll found: {poll.question}")
+        logger.info(f"Options: {[opt.text for opt in poll.options]}")
+        
         # Create a quiz from the poll
+        import uuid
+        from models.quiz import Quiz, Question
+        
         title = f"Poll Quiz {update.message.message_id}"
         description = f"Created from poll: {poll.question[:30]}..."
         
-        # Create the quiz
+        # Create the quiz object
         quiz = Quiz(
             id=str(uuid.uuid4()),
             title=title,
@@ -432,6 +441,7 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
         
         # Store the quiz in user context data
         context.user_data['poll_quiz'] = quiz
+        logger.info(f"Quiz created and stored in context for user {user_id}")
         
         # Send confirmation
         update.message.reply_text(
@@ -446,7 +456,10 @@ def convert_poll_to_quiz(update: Update, context: CallbackContext) -> None:
             f"3. Finalize the quiz with /finalize"
         )
     except Exception as e:
+        # Log the error for debugging
+        import traceback
         logger.error(f"Error in convert_poll_to_quiz: {str(e)}")
+        logger.error(traceback.format_exc())
         update.message.reply_text("Sorry, an error occurred while processing the poll. Please try again.")
 
 def set_negative_marking(update: Update, context: CallbackContext) -> str:
