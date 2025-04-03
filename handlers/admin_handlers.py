@@ -206,7 +206,8 @@ def add_question(update: Update, context: CallbackContext) -> str:
             "Try again or use /cancel to cancel."
         )
         return "ADDING_QUESTION"
-        def finalize_quiz(update: Update, context: CallbackContext) -> str:
+        
+def finalize_quiz(update: Update, context: CallbackContext) -> str:
     """Finalize quiz creation and proceed to setting time limit."""
     user_id = update.effective_user.id
     
