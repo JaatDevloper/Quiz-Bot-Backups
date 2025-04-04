@@ -1586,33 +1586,27 @@ def parse_questions_from_pdf_text(text):
     """
     Parse questions from the extracted PDF text
     
-    Expected format:
-    Q1. Question text
-    A. Option 1
-    B. Option 2
-    C. Option 3
-    D. Option 4
-    Correct: C
-    
-    Or:
-    
-    1. Question text
-    a) Option 1
-    b) Option 2
-    c) Option 3
-    d) Option 4
-    Correct: c
+    Supports multiple formats including:
+    - Standard format with "Correct:" label
+    - Format with checkmark (✓) to indicate correct answer
+    - Hindi and other non-English text support
     """
     questions = []
     lines = text.split('\n')
+    
+    # Print the extracted text for debugging
+    logger.info(f"Extracted text lines: {len(lines)}")
+    if len(lines) > 0:
+        logger.info(f"First 10 lines preview: {lines[:10]}")
     
     current_question = None
     current_options = []
     correct_answer = None
     
+    # Patterns for different formats
     question_pattern = re.compile(r'^(?:Q)?(\d+)[.)]\s+(.*)')
-    option_pattern1 = re.compile(r'^([A-D])[.)]\s+(.*)')
-    option_pattern2 = re.compile(r'^([a-d])[)]\s+(.*)')
+    option_pattern1 = re.compile(r'^(?:\()?([A-D])(?:\))?[.)]\s+(.*)')
+    option_pattern2 = re.compile(r'^(?:\()?([a-d])(?:\))?[.)]\s+(.*)')
     correct_pattern = re.compile(r'^[Cc]orrect:?\s*([A-Da-d])')
     
     i = 0
@@ -1629,7 +1623,6 @@ def parse_questions_from_pdf_text(text):
         if question_match:
             # Save previous question if exists
             if current_question and current_options:
-                # Convert letter to number index (1-based)
                 if correct_answer:
                     if correct_answer.upper() in "ABCD":
                         correct_idx = ord(correct_answer.upper()) - ord('A') + 1
@@ -1649,12 +1642,28 @@ def parse_questions_from_pdf_text(text):
             current_options = []
             correct_answer = None
             
-        # Check for options
+        # Check for options with checkmark for correct answer
+        checkmark_match = False
+        if "✓" in line or "√" in line or "✔" in line:
+            # This option has a checkmark, indicating it's correct
+            checkmark_match = True
+            # Try to extract the option letter
+            option_match = option_pattern1.match(line.replace("✓", "").replace("√", "").replace("✔", "").strip())
+            if option_match:
+                correct_answer = option_match.group(1)
+        
+        # Check for standard options
         option_match = option_pattern1.match(line) or option_pattern2.match(line)
         if option_match:
-            current_options.append(option_match.group(2))
+            option_letter = option_match.group(1)
+            option_text = option_match.group(2)
+            current_options.append(option_text)
+            
+            # If this option has checkmark in the same line or next line
+            if checkmark_match or (i+1 < len(lines) and ("✓" in lines[i+1] or "√" in lines[i+1] or "✔" in lines[i+1])):
+                correct_answer = option_letter
         
-        # Check for correct answer
+        # Check for correct answer standard format
         correct_match = correct_pattern.match(line)
         if correct_match:
             correct_answer = correct_match.group(1)
@@ -1677,6 +1686,7 @@ def parse_questions_from_pdf_text(text):
             'correct_answer': correct_idx
         })
     
+    logger.info(f"Extracted {len(questions)} questions from PDF")
     return questions
 
 def handle_pdf_import_callback(update, context):
