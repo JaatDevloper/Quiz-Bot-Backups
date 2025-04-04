@@ -26,7 +26,8 @@ from handlers.admin_handlers import (
     create_quiz, add_question, set_quiz_time, set_negative_marking, 
     finalize_quiz, admin_help, admin_command, edit_quiz_time, edit_question_time,
     convert_poll_to_quiz, start_marathon, finalize_marathon, cancel_marathon,
-    set_question_correct_answer, import_questions_from_pdf, handle_pdf_import_callback
+    set_question_correct_answer, import_questions_from_pdf, handle_pdf_import_callback,
+    diagnose_pdf_import, process_diagnostic_pdf  # Added new handlers
 )
 
 # Import config settings
@@ -72,7 +73,24 @@ def setup_handlers(dispatcher):
     # First register the poll handler - THIS IS THE KEY CHANGE
     dispatcher.add_handler(MessageHandler(Filters.poll | Filters.forwarded, convert_poll_to_quiz))
     
-    # PDF document handler
+    # Add the diagnostic PDF handler command
+    dispatcher.add_handler(CommandHandler("diagnose_pdf", diagnose_pdf_import))
+    
+    # PDF document handlers
+    # We need to prioritize the diagnostic PDF handler over the regular PDF import handler
+    # Create a custom filter that checks if we're waiting for a diagnostic PDF
+    class DiagnosticPdfFilter(Filters.base):
+        def filter(self, message):
+            return (message.document and message.document.mime_type == 'application/pdf'
+                  and message.chat.id in ADMIN_USERS
+                  and message.bot.dispatcher.user_data.get(message.from_user.id, {}).get('waiting_for_diagnostic_pdf', False))
+    
+    diagnostic_pdf_filter = DiagnosticPdfFilter()
+    
+    # Register the diagnostic PDF handler first (higher priority)
+    dispatcher.add_handler(MessageHandler(diagnostic_pdf_filter, process_diagnostic_pdf))
+    
+    # Then register the regular PDF import handler
     dispatcher.add_handler(MessageHandler(Filters.document.pdf, import_questions_from_pdf))
     dispatcher.add_handler(CallbackQueryHandler(handle_pdf_import_callback, pattern=r"^pdf_"))
     
