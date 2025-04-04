@@ -1448,40 +1448,82 @@ def import_questions_from_pdf(update, context):
         update.message.reply_text("Please forward a PDF file.")
         return
     
-    # Check if we're in diagnostic mode
-    diagnostic_mode = context.user_data.get('pdf_diagnostic_mode', False)
-    if diagnostic_mode:
-        # Clear the diagnostic mode flag
-        context.user_data['pdf_diagnostic_mode'] = False
-        # Simply inform that we're using a simplified extractor
-        update.message.reply_text("Using simplified PDF extraction for diagnostics.")
-    
     # Get the document file
     document = update.message.document
     file_id = document.file_id
+    file_name = document.file_name
+    file_size = document.file_size
     
+    update.message.reply_text(f"PDF Information:\n- Name: {file_name}\n- Size: {file_size} bytes")
     update.message.reply_text("Downloading PDF file...")
     
     # Download the file
     file = context.bot.get_file(file_id)
-    file_bytes = io.BytesIO()
-    file.download(out=file_bytes)
-    file_bytes.seek(0)
     
-    update.message.reply_text("Processing PDF file. This may take a moment...")
+    # Save to a temporary file with the correct name
+    temp_path = f"/tmp/tmp{file_id}.pdf"
+    file.download(temp_path)
+    
+    update.message.reply_text(f"Download successful")
+    update.message.reply_text(f"Saving to temporary file...")
+    update.message.reply_text(f"Saved to {temp_path}")
     
     # Process the PDF and extract text
     try:
-        from pdfminer.high_level import extract_text_to_fp
-        from pdfminer.layout import LAParams
-        from io import StringIO
+        update.message.reply_text("Testing extraction with PyMuPDF...")
         
-        output = StringIO()
-        extract_text_to_fp(file_bytes, output, laparams=LAParams())
-        text = output.getvalue()
+        try:
+            # Try PyMuPDF first
+            import fitz
+            doc = fitz.open(temp_path)
+            
+            # Special handling for Hindi text extraction
+            text = ""
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                # Extract text with special parameters for Hindi
+                blocks = page.get_text("dict")["blocks"]
+                for block in blocks:
+                    if "lines" in block:
+                        for line in block["lines"]:
+                            if "spans" in line:
+                                for span in line["spans"]:
+                                    if "text" in span:
+                                        # Ensure proper UTF-8 encoding
+                                        text += span["text"] + " "
+                                text += "\n"
+            
+            doc.close()
+            
+            # Ensure text is properly encoded as UTF-8
+            text = text.encode('utf-8', errors='replace').decode('utf-8')
+            
+        except Exception as e:
+            update.message.reply_text(f"PyMuPDF is not installed. Please install it using: pip install pymupdf")
+            update.message.reply_text("Testing extraction with PyPDF2...")
+            
+            try:
+                # Try PyPDF2 as fallback
+                import PyPDF2
+                with open(temp_path, 'rb') as f:
+                    pdf_reader = PyPDF2.PdfReader(f)
+                    text = ""
+                    for page_num in range(len(pdf_reader.pages)):
+                        page_text = pdf_reader.pages[page_num].extract_text()
+                        # Ensure proper UTF-8 encoding
+                        text += page_text.encode('utf-8', errors='replace').decode('utf-8') + "\n"
+            except Exception as e:
+                update.message.reply_text(f"PyPDF2 is not installed. Please install it using: pip install PyPDF2")
+                update.message.reply_text("No PDF extraction libraries are installed. Please install one of the following:")
+                update.message.reply_text("1️⃣ PyMuPDF (recommended): pip install pymupdf")
+                update.message.reply_text("2️⃣ PyPDF2 (alternative): pip install PyPDF2")
+                update.message.reply_text("Diagnosis complete - PDF libraries need to be installed")
+                os.remove(temp_path)
+                return
         
         if not text or len(text.strip()) < 10:
             update.message.reply_text("Could not extract text from the PDF. Please make sure it contains extractable text.")
+            os.remove(temp_path)
             return
         
         # Parse questions from the extracted text
@@ -1491,57 +1533,101 @@ def import_questions_from_pdf(update, context):
         # Initialize variables
         current_question = None
         current_options = []
-        question_count = 0
+        correct_option = None
         
-        # Simple pattern matching for questions and options
+        # Define patterns for multilingual support
+        question_pattern = re.compile(r'(\d+)[\.)\s]+(.+)')
+        option_pattern = re.compile(r'([A-Da-d])[\.)\s]+(.+)')
+        
         for line in lines:
             line = line.strip()
             if not line:
                 continue
             
-            # Look for lines that might be questions (start with numbers)
-            question_match = re.search(r'^\s*(\d+)[\.)\s]+(.+)', line)
-            if question_match and len(question_match.group(2)) > 10:
-                # If we have a previous question with options, save it
-                if current_question and len(current_options) >= 2:
+            # Check for question pattern
+            question_match = question_pattern.search(line)
+            if question_match and len(question_match.group(2)) > 5:
+                # If we already have a question, save it
+                if current_question and current_options:
+                    # Determine correct answer (default to first option)
+                    correct_idx = 1
+                    if correct_option:
+                        if correct_option.upper() in "ABCD":
+                            correct_idx = ord(correct_option.upper()) - ord('A') + 1
+                        else:
+                            try:
+                                correct_idx = int(correct_option)
+                            except:
+                                pass
+                    
+                    # Ensure correct_idx is valid
+                    if correct_idx < 1 or correct_idx > len(current_options):
+                        correct_idx = 1
+                    
                     questions.append({
                         'question': current_question,
                         'options': current_options,
-                        'correct_answer': 1  # Default to first option
+                        'correct_answer': correct_idx
                     })
                 
                 # Start a new question
                 current_question = question_match.group(2)
                 current_options = []
-                question_count += 1
+                correct_option = None
             
-            # Look for options (start with A, B, C, D)
-            option_match = re.search(r'^\s*([A-Da-d])[\.)\s]+(.+)', line)
+            # Check for option pattern
+            option_match = option_pattern.search(line)
             if option_match and current_question:
-                current_options.append(option_match.group(2))
+                option_letter = option_match.group(1).upper()
+                option_text = option_match.group(2)
+                
+                # Add this option
+                current_options.append(option_text)
+                
+                # Check if this option is marked as correct
+                if "✓" in line or "✔" in line or "√" in line or "correct" in line.lower():
+                    correct_option = option_letter
         
         # Add the last question
-        if current_question and len(current_options) >= 2:
+        if current_question and current_options:
+            # Determine correct answer (default to first option)
+            correct_idx = 1
+            if correct_option:
+                if correct_option.upper() in "ABCD":
+                    correct_idx = ord(correct_option.upper()) - ord('A') + 1
+                else:
+                    try:
+                        correct_idx = int(correct_option)
+                    except:
+                        pass
+            
+            # Ensure correct_idx is valid
+            if correct_idx < 1 or correct_idx > len(current_options):
+                correct_idx = 1
+            
             questions.append({
                 'question': current_question,
                 'options': current_options,
-                'correct_answer': 1  # Default to first option
+                'correct_answer': correct_idx
             })
         
+        # Clean up temporary file
+        os.remove(temp_path)
+        
         if not questions:
-            update.message.reply_text(f"No questions could be extracted from the PDF. Found {question_count} potential questions but couldn't match them with options.")
+            update.message.reply_text("No questions could be extracted from the PDF. Make sure the format is correct.")
             return
         
         # Store questions temporarily in user data
         context.user_data['pdf_questions'] = questions
         
         # Create a confirmation message with question preview
-        preview_text = f"Extracted {len(questions)} questions. Preview:\n\n"
-        for i, question in enumerate(questions[:3], 1):
-            preview_text += f"{i}. {question['question'][:50]}...\n"
+        preview_text = "Extracted the following questions:\n\n"
+        for i, question in enumerate(questions[:3], 1):  # Preview first 3 questions
+            preview_text += f"{i}. {question['question']}\n"
             for j, option in enumerate(question['options'][:4], 1):
-                preview_text += f"   {j}. {option[:30]}...\n"
-            preview_text += f"   Correct: Option 1 (default)\n\n"
+                preview_text += f"   {j}. {option}\n"
+            preview_text += f"   Correct: Option {question['correct_answer']}\n\n"
         
         if len(questions) > 3:
             preview_text += f"... and {len(questions) - 3} more questions\n\n"
@@ -1559,13 +1645,10 @@ def import_questions_from_pdf(update, context):
             reply_markup=reply_markup
         )
     
-    except ImportError:
-        update.message.reply_text("PDF extraction library (pdfminer.six) is not installed. Please update your requirements.txt.")
     except Exception as e:
         update.message.reply_text(f"Error processing PDF: {str(e)}")
-
-
-
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 def parse_questions_from_text(text):
     """
