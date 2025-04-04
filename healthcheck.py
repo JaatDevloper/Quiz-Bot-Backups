@@ -4,6 +4,10 @@ from dotenv import load_dotenv
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler
 from flask import Flask, request
 
+# Import your handlers
+from admin_handlers import start, help_command, admin_command, create_poll, import_poll, import_questions_from_pdf, on_poll_answer, diagnose_pdf, handle_pdf_callback
+from quiz_handlers import create_quiz, list_quizzes, view_quiz, start_quiz, handle_quiz_response, end_quiz, create_marathon, add_to_marathon, handle_marathon_response, list_marathons, view_marathon, start_marathon, end_marathon
+
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -31,16 +35,36 @@ def main():
     updater = Updater(TOKEN)
     dispatcher = updater.dispatcher
 
-    # Define a simple start command
-    def start(update, context):
-        update.message.reply_text('Welcome to the Advance Quiz Bot! Use /help to see available commands.')
-
-    def help_command(update, context):
-        update.message.reply_text('Available commands:\n/start - Start the bot\n/help - Show this help message')
-
-    # Register basic command handlers
+    # Register command handlers
     dispatcher.add_handler(CommandHandler("start", start))
     dispatcher.add_handler(CommandHandler("help", help_command))
+    dispatcher.add_handler(CommandHandler("admin", admin_command))
+    dispatcher.add_handler(CommandHandler("createpoll", create_poll))
+    dispatcher.add_handler(CommandHandler("importpoll", import_poll))
+    dispatcher.add_handler(CommandHandler("createquiz", create_quiz))
+    dispatcher.add_handler(CommandHandler("listquizzes", list_quizzes))
+    dispatcher.add_handler(CommandHandler("viewquiz", view_quiz))
+    dispatcher.add_handler(CommandHandler("startquiz", start_quiz))
+    dispatcher.add_handler(CommandHandler("endquiz", end_quiz))
+    dispatcher.add_handler(CommandHandler("createmarathon", create_marathon))
+    dispatcher.add_handler(CommandHandler("addtomarathon", add_to_marathon))
+    dispatcher.add_handler(CommandHandler("listmarathons", list_marathons))
+    dispatcher.add_handler(CommandHandler("viewmarathon", view_marathon))
+    dispatcher.add_handler(CommandHandler("startmarathon", start_marathon))
+    dispatcher.add_handler(CommandHandler("endmarathon", end_marathon))
+    dispatcher.add_handler(CommandHandler("diagnose_pdf", diagnose_pdf))
+
+    # Register message handlers
+    dispatcher.add_handler(MessageHandler(Filters.poll, import_poll))
+    dispatcher.add_handler(MessageHandler(Filters.document.mime_type("application/pdf"), import_questions_from_pdf))
+
+    # Register callback query handlers
+    dispatcher.add_handler(CallbackQueryHandler(handle_quiz_response, pattern=r"quiz_"))
+    dispatcher.add_handler(CallbackQueryHandler(handle_marathon_response, pattern=r"marathon_"))
+    dispatcher.add_handler(CallbackQueryHandler(handle_pdf_callback, pattern=r"pdf_"))
+
+    # Register poll answer handler
+    dispatcher.add_handler(MessageHandler(Filters.poll_answer, on_poll_answer))
 
     # Start the webhook
     if APP_NAME:
