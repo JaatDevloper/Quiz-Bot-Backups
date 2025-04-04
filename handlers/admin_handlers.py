@@ -1257,48 +1257,34 @@ def import_questions_from_pdf(update, context):
     
     update.message.reply_text("Processing PDF file. This may take a moment...")
     
-    # Process the PDF and extract text with improved encoding handling
+    # Process the PDF and extract text
     try:
-        # Save to temporary file for better encoding support
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
-            temp_file.write(file_bytes.getvalue())
-            temp_file_path = temp_file.name
-        
-        # Try PyMuPDF first with better encoding support
+        # Try PyMuPDF first
         try:
             import fitz
-            doc = fitz.open(temp_file_path)
+            doc = fitz.open(stream=file_bytes.getvalue(), filetype="pdf")
             text = ""
             for page_num in range(len(doc)):
                 page = doc.load_page(page_num)
-                # Extract text with raw=True for better Unicode handling
-                text += page.get_text("text", flags=0) + "\n"
+                text += page.get_text() + "\n"
             doc.close()
         except Exception as e:
             # Try PyPDF2 as fallback
             try:
                 import PyPDF2
-                with open(temp_file_path, 'rb') as f:
-                    pdf_reader = PyPDF2.PdfReader(f)
-                    text = ""
-                    for page_num in range(len(pdf_reader.pages)):
-                        # Extract text and normalize Unicode
-                        page_text = pdf_reader.pages[page_num].extract_text()
-                        # Normalize Unicode for better Hindi support
-                        text += unicodedata.normalize('NFC', page_text) + "\n"
+                pdf_reader = PyPDF2.PdfReader(file_bytes)
+                text = ""
+                for page_num in range(len(pdf_reader.pages)):
+                    text += pdf_reader.pages[page_num].extract_text() + "\n"
             except Exception as e:
                 update.message.reply_text(f"Failed to extract text: {str(e)}")
-                os.unlink(temp_file_path)
                 return
-        
-        # Clean up the temp file
-        os.unlink(temp_file_path)
         
         if not text or len(text.strip()) < 10:
             update.message.reply_text("Could not extract text from the PDF. Please make sure it contains extractable text.")
             return
         
-        # Parse questions from the extracted text with improved support for Hindi
+        # Parse questions from the extracted text
         questions = []
         lines = text.split('\n')
         
@@ -1307,7 +1293,7 @@ def import_questions_from_pdf(update, context):
         current_options = []
         correct_option = None
         
-        # Enhanced patterns for multilingual support
+        # Define patterns
         question_pattern = re.compile(r'(\d+)[\.)\s]+(.+)')
         option_pattern = re.compile(r'([A-Da-d])[\.)\s]+(.+)')
         
