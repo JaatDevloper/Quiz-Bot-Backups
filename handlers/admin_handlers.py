@@ -1461,6 +1461,7 @@ def diagnose_pdf_import(update, context):
 def import_questions_from_pdf(update, context):
     """
     Handler function for importing questions from a PDF document
+    Now handles both regular imports and diagnostic mode
     """
     # Check if user is admin
     user_id = update.effective_user.id
@@ -1496,46 +1497,126 @@ def import_questions_from_pdf(update, context):
     
     update.message.reply_text("Processing PDF file. This may take a moment...")
     
-    # Process the PDF and extract text
-    text = extract_text_from_pdf(file_bytes)
+    # Try to use basic text extraction
+    try:
+        # Check if PyMuPDF is installed
+        try:
+            import fitz
+            pymupdf_available = True
+        except ImportError:
+            pymupdf_available = False
+        
+        # Check if PyPDF2 is installed
+        try:
+            import PyPDF2
+            pypdf2_available = True
+        except ImportError:
+            pypdf2_available = False
+        
+        if not pymupdf_available and not pypdf2_available:
+            update.message.reply_text("PDF extraction libraries are not installed. Please install PyMuPDF or PyPDF2.")
+            update.message.reply_text("For now, please use the poll-to-quiz conversion feature instead.")
+            return
+        
+        # Extract text using available libraries
+        text = ""
+        if pymupdf_available:
+            # Save to temporary file for PyMuPDF
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+                temp_file.write(file_bytes.getvalue())
+                temp_file_path = temp_file.name
+            
+            # Extract with PyMuPDF
+            doc = fitz.open(temp_file_path)
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                text += page.get_text() + "\n"
+            doc.close()
+            
+            # Clean up
+            os.unlink(temp_file_path)
+        elif pypdf2_available:
+            # Extract with PyPDF2
+            file_bytes.seek(0)
+            pdf_reader = PyPDF2.PdfReader(file_bytes)
+            for page_num in range(len(pdf_reader.pages)):
+                text += pdf_reader.pages[page_num].extract_text() + "\n"
+        
+        if not text:
+            update.message.reply_text("Failed to extract text from PDF. Please try a different PDF or use the poll-to-quiz feature.")
+            return
+        
+        # Simple question parsing
+        lines = text.split('\n')
+        questions = []
+        current_question = None
+        current_options = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Very simple pattern matching for questions and options
+            if re.match(r'\d+[\.\)]\s', line):
+                # This looks like a new question
+                if current_question and len(current_options) >= 2:
+                    # Save previous question
+                    questions.append({
+                        'question': current_question,
+                        'options': current_options,
+                        'correct_answer': 1  # Default to first option
+                    })
+                
+                # Start new question
+                current_question = line
+                current_options = []
+            elif re.match(r'[A-Da-d][\.\)]\s', line) and current_question:
+                # This looks like an option
+                current_options.append(line)
+        
+        # Add the last question
+        if current_question and len(current_options) >= 2:
+            questions.append({
+                'question': current_question,
+                'options': current_options,
+                'correct_answer': 1  # Default to first option
+            })
+        
+        if not questions:
+            update.message.reply_text("No questions could be extracted from the PDF. Make sure the format is correct.")
+            return
+        
+        # Store questions temporarily
+        context.user_data['pdf_questions'] = questions
+        
+        # Create preview
+        preview_text = f"Extracted {len(questions)} questions. Here's a preview:\n\n"
+        for i, q in enumerate(questions[:3], 1):
+            preview_text += f"{q['question']}\n"
+            for opt in q['options'][:4]:
+                preview_text += f"{opt}\n"
+            preview_text += "\n"
+        
+        if len(questions) > 3:
+            preview_text += f"... and {len(questions) - 3} more questions\n\n"
+        
+        # Ask what to do with the questions
+        keyboard = [
+            [InlineKeyboardButton("Create New Quiz", callback_data="pdf_create")],
+            [InlineKeyboardButton("Add to Marathon Quiz", callback_data="pdf_marathon")],
+            [InlineKeyboardButton("Cancel", callback_data="pdf_cancel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        update.message.reply_text(
+            f"{preview_text}What would you like to do with these questions?",
+            reply_markup=reply_markup
+        )
     
-    if not text:
-        update.message.reply_text("Could not extract text from the PDF. Please make sure the PDF contains extractable text.")
-        return
-    
-    # Parse questions from the extracted text
-    questions = parse_questions_from_text(text)
-    
-    if not questions:
-        update.message.reply_text("No questions could be extracted from the PDF. Make sure the format is correct.")
-        return
-    
-    # Store questions temporarily in user data
-    context.user_data['pdf_questions'] = questions
-    
-    # Create a confirmation message with question preview
-    preview_text = "Extracted the following questions:\n\n"
-    for i, question in enumerate(questions[:3], 1):  # Preview first 3 questions
-        preview_text += f"{i}. {question['question'][:50]}...\n"
-        for j, option in enumerate(question['options'][:4], 1):
-            preview_text += f"   {j}. {option[:30]}...\n"
-        preview_text += f"   Correct: Option {question['correct_answer']}\n\n"
-    
-    if len(questions) > 3:
-        preview_text += f"... and {len(questions) - 3} more questions\n\n"
-    
-    # Ask user to confirm import and provide a quiz name
-    keyboard = [
-        [InlineKeyboardButton("Create New Quiz", callback_data="pdf_create")],
-        [InlineKeyboardButton("Add to Marathon Quiz", callback_data="pdf_marathon")],
-        [InlineKeyboardButton("Cancel", callback_data="pdf_cancel")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    update.message.reply_text(
-        f"{preview_text}What would you like to do with these questions?",
-        reply_markup=reply_markup
-    )
+    except Exception as e:
+        update.message.reply_text(f"Error processing PDF: {str(e)}")
+        update.message.reply_text("Please try a different PDF or use the poll-to-quiz feature.")
 
 def run_pdf_diagnostics(update, context):
     """
