@@ -1935,6 +1935,144 @@ def parse_hindi_questions(file_bytes):
     except Exception as e:
         logger.error(f"Critical error in Hindi PDF processing: {str(e)}")
         return []
+
+def extract_and_parse_questions(file_bytes):
+    """
+    Simplified approach to extract and parse questions from PDF
+    """
+    try:
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+            temp_file.write(file_bytes.getvalue())
+            temp_file_path = temp_file.name
+        
+        logger.info(f"Processing PDF at {temp_file_path}")
+        
+        questions = []
+        extracted_text = ""
+        
+        # Try PyMuPDF first
+        try:
+            import fitz
+            doc = fitz.open(temp_file_path)
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                extracted_text += page.get_text() + "\n"
+            doc.close()
+        except Exception as e:
+            logger.error(f"PyMuPDF extraction failed: {str(e)}")
+            
+            # Try PyPDF2 as fallback
+            try:
+                import PyPDF2
+                with open(temp_file_path, 'rb') as f:
+                    pdf_reader = PyPDF2.PdfReader(f)
+                    for page_num in range(len(pdf_reader.pages)):
+                        page = pdf_reader.pages[page_num]
+                        extracted_text += page.extract_text() + "\n"
+            except Exception as e:
+                logger.error(f"PyPDF2 extraction failed: {str(e)}")
+                extracted_text = ""
+        
+        # Clean up temp file
+        try:
+            os.unlink(temp_file_path)
+        except:
+            pass
+        
+        if not extracted_text:
+            logger.error("Failed to extract text from PDF")
+            return []
+        
+        # Simple approach: Look for patterns that look like questions and options
+        lines = extracted_text.split('\n')
+        
+        # Initialize variables
+        current_question = None
+        current_question_text = None
+        current_options = []
+        correct_option = None
+        
+        logger.info(f"Extracted {len(lines)} lines from PDF")
+        
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Check if line looks like a question (Q1, 1., etc.)
+            question_match = re.search(r'(?:Q|q)?\.?\s*(\d+)\.?\s+(.+)', line)
+            if question_match:
+                # If we already have a question, save it before starting a new one
+                if current_question_text and current_options:
+                    correct_idx = 1  # Default to first option
+                    if correct_option:
+                        if correct_option.upper() in "ABCD":
+                            correct_idx = ord(correct_option.upper()) - ord('A') + 1
+                        else:
+                            try:
+                                correct_idx = int(correct_option)
+                            except:
+                                pass
+                    
+                    questions.append({
+                        'question': current_question_text,
+                        'options': current_options,
+                        'correct_answer': correct_idx
+                    })
+                
+                # Start a new question
+                current_question = int(question_match.group(1))
+                current_question_text = question_match.group(2)
+                current_options = []
+                correct_option = None
+                logger.info(f"Found question {current_question}: {current_question_text[:30]}...")
+            
+            # Check if line looks like an option (A., B., (A), etc.)
+            option_match = re.search(r'(?:\()?([A-Da-d])(?:\))?\.?\s+(.+)', line)
+            if option_match and current_question_text:
+                option_letter = option_match.group(1).upper()
+                option_text = option_match.group(2)
+                
+                # Add this option
+                current_options.append(option_text)
+                logger.info(f"Found option {option_letter}: {option_text[:30]}...")
+                
+                # If this line or the next few lines contain a checkmark, it's the correct answer
+                if "✓" in line or "✔" in line or "√" in line:
+                    correct_option = option_letter
+                    logger.info(f"Option {option_letter} marked as correct")
+            
+            # Check if line indicates the correct answer
+            correct_match = re.search(r'(?:Correct|Answer|Ans):\s*([A-Da-d])', line, re.IGNORECASE)
+            if correct_match and current_question_text:
+                correct_option = correct_match.group(1)
+                logger.info(f"Found correct answer: {correct_option}")
+        
+        # Add the last question
+        if current_question_text and current_options:
+            correct_idx = 1  # Default to first option
+            if correct_option:
+                if correct_option.upper() in "ABCD":
+                    correct_idx = ord(correct_option.upper()) - ord('A') + 1
+                else:
+                    try:
+                        correct_idx = int(correct_option)
+                    except:
+                        pass
+            
+            questions.append({
+                'question': current_question_text,
+                'options': current_options,
+                'correct_answer': correct_idx
+            })
+        
+        logger.info(f"Extracted {len(questions)} questions total")
+        return questions
+    
+    except Exception as e:
+        logger.error(f"Error in extract_and_parse_questions: {str(e)}")
+        return []
         
         
                     
