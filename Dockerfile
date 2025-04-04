@@ -2,9 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install required packages - just the basics
+# Install required packages including MuPDF dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libmupdf-dev \
+    mupdf \
+    mupdf-tools \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
