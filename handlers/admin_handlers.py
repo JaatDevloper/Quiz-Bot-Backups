@@ -2298,10 +2298,15 @@ def run_pdf_diagnostics(update, context):
         update.message.reply_text(f"❌ Failed to save: {str(e)}")
         return
     
+    # Check for required PDF libraries
+    pymupdf_available = False
+    pypdf2_available = False
+    
     # Test PyMuPDF extraction
+    update.message.reply_text("🔍 Testing extraction with PyMuPDF...")
     try:
-        update.message.reply_text("🔍 Testing extraction with PyMuPDF...")
         import fitz
+        pymupdf_available = True
         doc = fitz.open(temp_file_path)
         page_count = len(doc)
         update.message.reply_text(f"📄 PDF has {page_count} pages")
@@ -2315,52 +2320,78 @@ def run_pdf_diagnostics(update, context):
         
         doc.close()
         update.message.reply_text("✅ PyMuPDF extraction successful")
+    except ImportError:
+        update.message.reply_text("❌ PyMuPDF is not installed. Please install it using: pip install pymupdf")
     except Exception as e:
         update.message.reply_text(f"❌ PyMuPDF extraction failed: {str(e)}")
-        
-        # Try PyPDF2 as fallback
-        try:
-            update.message.reply_text("🔍 Testing extraction with PyPDF2...")
-            import PyPDF2
-            with open(temp_file_path, 'rb') as f:
-                pdf_reader = PyPDF2.PdfReader(f)
-                page_count = len(pdf_reader.pages)
-                update.message.reply_text(f"📄 PDF has {page_count} pages")
-                
-                # Extract text from first page as sample
-                if page_count > 0:
-                    text = pdf_reader.pages[0].extract_text()
-                    text_preview = text[:200] + "..." if len(text) > 200 else text
-                    update.message.reply_text(f"📝 First page text sample:\n{text_preview}")
-            update.message.reply_text("✅ PyPDF2 extraction successful")
-        except Exception as e:
-            update.message.reply_text(f"❌ PyPDF2 extraction failed: {str(e)}")
     
-    # Try to parse questions from the extracted text
+    # Try PyPDF2 as fallback
+    update.message.reply_text("🔍 Testing extraction with PyPDF2...")
     try:
+        import PyPDF2
+        pypdf2_available = True
+        with open(temp_file_path, 'rb') as f:
+            pdf_reader = PyPDF2.PdfReader(f)
+            page_count = len(pdf_reader.pages)
+            update.message.reply_text(f"📄 PDF has {page_count} pages")
+            
+            # Extract text from first page as sample
+            if page_count > 0:
+                text = pdf_reader.pages[0].extract_text()
+                text_preview = text[:200] + "..." if len(text) > 200 else text
+                update.message.reply_text(f"📝 First page text sample:\n{text_preview}")
+        update.message.reply_text("✅ PyPDF2 extraction successful")
+    except ImportError:
+        update.message.reply_text("❌ PyPDF2 is not installed. Please install it using: pip install PyPDF2")
+    except Exception as e:
+        update.message.reply_text(f"❌ PyPDF2 extraction failed: {str(e)}")
+    
+    # Show summary if neither library is available
+    if not pymupdf_available and not pypdf2_available:
+        update.message.reply_text("⚠️ No PDF extraction libraries are installed. Please install one of the following:")
+        update.message.reply_text("1️⃣ PyMuPDF (recommended): pip install pymupdf")
+        update.message.reply_text("2️⃣ PyPDF2 (alternative): pip install PyPDF2")
+        
+        # Clean up temp file
+        try:
+            os.unlink(temp_file_path)
+        except:
+            pass
+            
+        update.message.reply_text("🔍 Diagnosis complete - PDF libraries need to be installed")
+        return
+    
+    # Try to parse text from the extracted PDF
+    # Only run this if at least one library is available
+    if pymupdf_available or pypdf2_available:
         update.message.reply_text("🔍 Attempting to extract all text for question parsing...")
         
         # Get all text from PDF
         all_text = ""
         
-        try:
-            # Try PyMuPDF first
-            import fitz
-            doc = fitz.open(temp_file_path)
-            for page_num in range(len(doc)):
-                page = doc.load_page(page_num)
-                all_text += page.get_text() + "\n"
-            doc.close()
-        except Exception:
-            # Fall back to PyPDF2
+        if pymupdf_available:
             try:
+                # Use PyMuPDF
+                import fitz
+                doc = fitz.open(temp_file_path)
+                for page_num in range(len(doc)):
+                    page = doc.load_page(page_num)
+                    all_text += page.get_text() + "\n"
+                doc.close()
+            except Exception as e:
+                update.message.reply_text(f"❌ PyMuPDF text extraction failed: {str(e)}")
+                all_text = ""
+        
+        if not all_text and pypdf2_available:
+            try:
+                # Fall back to PyPDF2
                 import PyPDF2
                 with open(temp_file_path, 'rb') as f:
                     pdf_reader = PyPDF2.PdfReader(f)
                     for page_num in range(len(pdf_reader.pages)):
                         all_text += pdf_reader.pages[page_num].extract_text() + "\n"
             except Exception as e:
-                update.message.reply_text(f"❌ All text extraction methods failed: {str(e)}")
+                update.message.reply_text(f"❌ PyPDF2 text extraction failed: {str(e)}")
                 all_text = ""
         
         # Clean up temp file
@@ -2376,8 +2407,8 @@ def run_pdf_diagnostics(update, context):
             
             # Look for potential questions and options
             lines = all_text.split('\n')
-            question_pattern = re.compile(r'(\d+)[\.\)]\s*(.+)')
-            option_pattern = re.compile(r'(?:\()?([A-Da-d])(?:\))?\s*[\.\)]\s*(.+)')
+            question_pattern = re.compile(r'(\d+)[\.)\s]+(.+)')
+            option_pattern = re.compile(r'([A-Da-d])[\.)\s]+(.+)')
             
             # Count potential questions and options
             question_lines = []
@@ -2413,10 +2444,13 @@ def run_pdf_diagnostics(update, context):
             else:
                 update.message.reply_text("❌ No lines matched option pattern")
     
-    except Exception as e:
-        update.message.reply_text(f"❌ Error during question pattern analysis: {str(e)}")
-    
     update.message.reply_text("🔍 Diagnosis complete")
+
+
+    
+    
+            
+            
 
 
     
