@@ -2197,26 +2197,89 @@ def diagnose_pdf_import(update, context):
         update.message.reply_text("Sorry, only admins can use this command.")
         return
     
-    update.message.reply_text("Please forward a PDF to diagnose the import process.")
-    context.user_data['waiting_for_diagnostic_pdf'] = True
+    # Set a flag in user_data to indicate diagnostic mode
+    context.user_data['pdf_diagnostic_mode'] = True
+    update.message.reply_text("PDF diagnostic mode activated. Please forward a PDF file to analyze.")
 
-def process_diagnostic_pdf(update, context):
+def import_questions_from_pdf(update, context):
     """
-    Process a PDF for diagnostics
+    Handler function for importing questions from a PDF document
+    Now handles both regular imports and diagnostic mode
     """
-    if not context.user_data.get('waiting_for_diagnostic_pdf'):
+    # Check if user is admin
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can import questions from PDFs.")
         return
-    
-    # Reset the flag
-    context.user_data['waiting_for_diagnostic_pdf'] = False
     
     # Check if a document was provided
     if not update.message.document or update.message.document.mime_type != 'application/pdf':
-        update.message.reply_text("Please forward a PDF file for diagnosis.")
+        update.message.reply_text("Please forward a PDF file.")
         return
     
-    update.message.reply_text("🔍 Starting PDF import diagnosis...")
+    # Check if we're in diagnostic mode
+    diagnostic_mode = context.user_data.get('pdf_diagnostic_mode', False)
+    if diagnostic_mode:
+        # Clear the diagnostic mode flag
+        context.user_data['pdf_diagnostic_mode'] = False
+        # Run diagnostic process
+        run_pdf_diagnostics(update, context)
+        return
     
+    # Normal PDF import process continues below
+    # Get the document file
+    document = update.message.document
+    file_id = document.file_id
+    
+    update.message.reply_text("Downloading PDF file...")
+    
+    # Download the file
+    file = context.bot.get_file(file_id)
+    file_bytes = io.BytesIO()
+    file.download(out=file_bytes)
+    file_bytes.seek(0)
+    
+    update.message.reply_text("Processing PDF file. This may take a moment...")
+    
+    # Extract and parse questions
+    questions = extract_and_parse_questions(file_bytes)
+    
+    if not questions:
+        update.message.reply_text("No questions could be extracted from the PDF. "
+                                 "Make sure the format is correct.")
+        return
+    
+    # Store questions temporarily in user data
+    context.user_data['pdf_questions'] = questions
+    
+    # Create a confirmation message with question preview
+    preview_text = "Extracted the following questions:\n\n"
+    for i, question in enumerate(questions[:3], 1):  # Preview first 3 questions
+        preview_text += f"{i}. {question['question'][:50]}...\n"
+        for j, option in enumerate(question['options'][:4], 1):
+            preview_text += f"   {j}. {option[:30]}...\n"
+        preview_text += f"   Correct: Option {question['correct_answer']}\n\n"
+    
+    if len(questions) > 3:
+        preview_text += f"... and {len(questions) - 3} more questions\n\n"
+    
+    # Ask user to confirm import and provide a quiz name
+    keyboard = [
+        [InlineKeyboardButton("Create New Quiz", callback_data="pdf_create")],
+        [InlineKeyboardButton("Add to Marathon Quiz", callback_data="pdf_marathon")],
+        [InlineKeyboardButton("Cancel", callback_data="pdf_cancel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    update.message.reply_text(
+        f"{preview_text}What would you like to do with these questions?",
+        reply_markup=reply_markup
+    )
+
+def run_pdf_diagnostics(update, context):
+    """
+    Run diagnostics on a PDF file to identify parsing issues
+    """
     # Get the document file
     document = update.message.document
     file_id = document.file_id
@@ -2367,6 +2430,17 @@ def process_diagnostic_pdf(update, context):
         update.message.reply_text(f"❌ Error during question pattern analysis: {str(e)}")
     
     update.message.reply_text("🔍 Diagnosis complete")
+
+
+    
+    
+    
+    
+        
+        
+                
+                
+                
         
         
                     
