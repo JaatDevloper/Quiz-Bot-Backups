@@ -1561,20 +1561,25 @@ def extract_text_from_pdf(file_bytes):
         # Try to get text directly from binary data
         binary_content = file_bytes.getvalue()
         
+        # Log the size for debugging
+        logger.info(f"PDF binary size: {len(binary_content)} bytes")
+        
         # Decode the binary data to text with error handling
         decoded_text = binary_content.decode('utf-8', errors='ignore')
         
-        # Basic cleanup - remove non-printable characters
+        # Basic cleanup - remove non-printable characters while preserving Unicode
         cleaned_text = ''.join(c if c.isprintable() or c in '\n\r\t' else ' ' for c in decoded_text)
         
         # Extract lines that might be questions
         lines = []
         for line in cleaned_text.split('\n'):
             line = line.strip()
-            if len(line) > 10 and not line.startswith('%') and not line.startswith('/'):
+            # Accept shorter lines that might be in Hindi
+            if len(line) > 3 and not line.startswith('%') and not line.startswith('/'):
                 lines.append(line)
         
         text = '\n'.join(lines)
+        logger.info(f"Extracted {len(lines)} text lines from PDF")
         
     except Exception as e:
         logger.error(f"Error extracting text from PDF: {e}")
