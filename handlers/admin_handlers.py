@@ -1317,40 +1317,154 @@ def import_questions_from_pdf(update, context):
 
 def extract_text_from_pdf(file_bytes):
     """
-    Extract text from PDF using available libraries
+    Extract text from PDF using pdfminer.six
     """
     try:
-        # Try PyMuPDF first
-        import fitz
-        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
-            temp_file.write(file_bytes.getvalue())
-            temp_file_path = temp_file.name
+        from pdfminer.high_level import extract_text_to_fp
+        from pdfminer.layout import LAParams
+        from io import StringIO
         
-        doc = fitz.open(temp_file_path)
-        text = ""
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            text += page.get_text() + "\n"
-        doc.close()
-        
-        os.unlink(temp_file_path)
+        output = StringIO()
+        extract_text_to_fp(file_bytes, output, laparams=LAParams())
+        text = output.getvalue()
         return text
-    except ImportError:
-        # PyMuPDF not available, try PyPDF2
-        try:
-            import PyPDF2
-            pdf_reader = PyPDF2.PdfReader(file_bytes)
-            text = ""
-            for page_num in range(len(pdf_reader.pages)):
-                text += pdf_reader.pages[page_num].extract_text() + "\n"
-            return text
-        except ImportError:
-            # Neither library available
-            return None
     except Exception as e:
-        # Other error occurred
         logging.error(f"Error extracting PDF text: {str(e)}")
         return None
+
+def import_questions_from_pdf(update, context):
+    """
+    Handler function for importing questions from a PDF document
+    """
+    # Check if user is admin
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can import questions from PDFs.")
+        return
+    
+    # Check if a document was provided
+    if not update.message.document or update.message.document.mime_type != 'application/pdf':
+        update.message.reply_text("Please forward a PDF file.")
+        return
+    
+    # Check if we're in diagnostic mode
+    diagnostic_mode = context.user_data.get('pdf_diagnostic_mode', False)
+    if diagnostic_mode:
+        # Clear the diagnostic mode flag
+        context.user_data['pdf_diagnostic_mode'] = False
+        # Simply inform that we're using a simplified extractor
+        update.message.reply_text("Using simplified PDF extraction for diagnostics.")
+    
+    # Get the document file
+    document = update.message.document
+    file_id = document.file_id
+    
+    update.message.reply_text("Downloading PDF file...")
+    
+    # Download the file
+    file = context.bot.get_file(file_id)
+    file_bytes = io.BytesIO()
+    file.download(out=file_bytes)
+    file_bytes.seek(0)
+    
+    update.message.reply_text("Processing PDF file. This may take a moment...")
+    
+    # Process the PDF and extract text
+    try:
+        from pdfminer.high_level import extract_text_to_fp
+        from pdfminer.layout import LAParams
+        from io import StringIO
+        
+        output = StringIO()
+        extract_text_to_fp(file_bytes, output, laparams=LAParams())
+        text = output.getvalue()
+        
+        if not text or len(text.strip()) < 10:
+            update.message.reply_text("Could not extract text from the PDF. Please make sure it contains extractable text.")
+            return
+        
+        # Parse questions from the extracted text
+        questions = []
+        lines = text.split('\n')
+        
+        # Initialize variables
+        current_question = None
+        current_options = []
+        question_count = 0
+        
+        # Simple pattern matching for questions and options
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Look for lines that might be questions (start with numbers)
+            question_match = re.search(r'^\s*(\d+)[\.)\s]+(.+)', line)
+            if question_match and len(question_match.group(2)) > 10:
+                # If we have a previous question with options, save it
+                if current_question and len(current_options) >= 2:
+                    questions.append({
+                        'question': current_question,
+                        'options': current_options,
+                        'correct_answer': 1  # Default to first option
+                    })
+                
+                # Start a new question
+                current_question = question_match.group(2)
+                current_options = []
+                question_count += 1
+            
+            # Look for options (start with A, B, C, D)
+            option_match = re.search(r'^\s*([A-Da-d])[\.)\s]+(.+)', line)
+            if option_match and current_question:
+                current_options.append(option_match.group(2))
+        
+        # Add the last question
+        if current_question and len(current_options) >= 2:
+            questions.append({
+                'question': current_question,
+                'options': current_options,
+                'correct_answer': 1  # Default to first option
+            })
+        
+        if not questions:
+            update.message.reply_text(f"No questions could be extracted from the PDF. Found {question_count} potential questions but couldn't match them with options.")
+            return
+        
+        # Store questions temporarily in user data
+        context.user_data['pdf_questions'] = questions
+        
+        # Create a confirmation message with question preview
+        preview_text = f"Extracted {len(questions)} questions. Preview:\n\n"
+        for i, question in enumerate(questions[:3], 1):
+            preview_text += f"{i}. {question['question'][:50]}...\n"
+            for j, option in enumerate(question['options'][:4], 1):
+                preview_text += f"   {j}. {option[:30]}...\n"
+            preview_text += f"   Correct: Option 1 (default)\n\n"
+        
+        if len(questions) > 3:
+            preview_text += f"... and {len(questions) - 3} more questions\n\n"
+        
+        # Ask user to confirm import and provide a quiz name
+        keyboard = [
+            [InlineKeyboardButton("Create New Quiz", callback_data="pdf_create")],
+            [InlineKeyboardButton("Add to Marathon Quiz", callback_data="pdf_marathon")],
+            [InlineKeyboardButton("Cancel", callback_data="pdf_cancel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        update.message.reply_text(
+            f"{preview_text}What would you like to do with these questions?",
+            reply_markup=reply_markup
+        )
+    
+    except ImportError:
+        update.message.reply_text("PDF extraction library (pdfminer.six) is not installed. Please update your requirements.txt.")
+    except Exception as e:
+        update.message.reply_text(f"Error processing PDF: {str(e)}")
+
+
+
 
 def parse_questions_from_text(text):
     """
