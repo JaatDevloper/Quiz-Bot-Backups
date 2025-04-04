@@ -1226,111 +1226,236 @@ def set_question_correct_answer(update: Update, context: CallbackContext) -> Non
         logger.error(traceback.format_exc())
         update.message.reply_text(f"Error setting correct answer: {str(e)}")
 
-def import_questions_from_pdf(update: Update, context: CallbackContext) -> None:
-    """Import questions from a PDF file."""
+def import_questions_from_pdf(update, context):
+    """
+    Handler function for importing questions from a PDF document with enhanced debugging
+    """
+    # Check if user is admin
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can import questions from PDFs.")
+        return
+    
+    # Check if a document was provided
+    if not update.message.document or update.message.document.mime_type != 'application/pdf':
+        update.message.reply_text("Please forward a PDF file.")
+        return
+    
+    # Get the document file
+    document = update.message.document
+    file_id = document.file_id
+    
+    update.message.reply_text("Downloading PDF file...")
+    
+    # Download the file
+    file = context.bot.get_file(file_id)
+    file_bytes = io.BytesIO()
+    file.download(out=file_bytes)
+    file_bytes.seek(0)
+    
+    update.message.reply_text("Processing PDF file. This may take a moment...")
+    
+    # Save to temporary file for easier handling
+    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+        temp_file.write(file_bytes.getvalue())
+        temp_file_path = temp_file.name
+    
+    # Extract text content from PDF
+    extracted_text = ""
+    
+    update.message.reply_text("Extracting text from PDF...")
+    
+    # Try PyMuPDF first
     try:
-        user_id = update.effective_user.id
-        
-        # Check if user is admin
-        if user_id not in ADMIN_USERS:
-            update.message.reply_text("Sorry, only admins can use this command.")
-            return
-        
-        # Check if PDF was uploaded
-        if update.message and update.message.document:
-            document = update.message.document
-            
-            # Check if it's a PDF
-            if not document.mime_type.endswith('pdf'):
-                update.message.reply_text("Please upload a PDF file.")
-                return
-            
-            # Download the PDF
-            file_id = document.file_id
-            update.message.reply_text("Downloading PDF file...")
-            
-            file = context.bot.get_file(file_id)
-            pdf_path = f"/tmp/{file_id}.pdf"
-            file.download(pdf_path)
-            
-            update.message.reply_text("Processing PDF file. This may take a moment...")
-            
-            # Extract text from PDF
-            try:
-                import fitz  # PyMuPDF
-                
-                doc = fitz.open(pdf_path)
-                text = ""
-                
-                for page in doc:
-                    text += page.get_text()
-                
-                # Close and remove the file
-                doc.close()
-                import os
-                os.remove(pdf_path)
-                
-                # Parse questions from text
-                questions = parse_questions_from_text(text)
-                
-                if not questions:
-                    update.message.reply_text(
-                        "No questions found in the PDF. Make sure the PDF contains questions in the expected format:\n\n"
-                        "Question: What is the capital of France?\n"
-                        "A) Paris\n"
-                        "B) London\n"
-                        "C) Berlin\n"
-                        "D) Madrid\n"
-                        "Correct: A\n\n"
-                        "or similar formatting."
-                    )
-                    return
-                
-                # Ask if user wants to create a new quiz or add to marathon
-                if 'marathon_quiz' in context.user_data:
-                    keyboard = [
-                        [InlineKeyboardButton("Add to marathon", callback_data=f"pdf_marathon_{file_id}")],
-                        [InlineKeyboardButton("Create new quiz", callback_data=f"pdf_new_{file_id}")]
-                    ]
-                else:
-                    keyboard = [
-                        [InlineKeyboardButton("Create new quiz", callback_data=f"pdf_new_{file_id}")]
-                    ]
-                
-                reply_markup = InlineKeyboardMarkup(keyboard)
-                
-                # Store questions in context for later
-                context.user_data[f'pdf_questions_{file_id}'] = questions
-                
-                update.message.reply_text(
-                    f"Found {len(questions)} questions in the PDF.\n\n"
-                    f"What would you like to do?",
-                    reply_markup=reply_markup
-                )
-                
-            except Exception as e:
-                import traceback
-                logger.error(f"Error processing PDF: {str(e)}")
-                logger.error(traceback.format_exc())
-                update.message.reply_text(f"Error processing PDF: {str(e)}")
-        else:
-            update.message.reply_text(
-                "Please upload a PDF file containing questions.\n\n"
-                "The PDF should contain questions in a format like:\n\n"
-                "Question: What is the capital of France?\n"
-                "A) Paris\n"
-                "B) London\n"
-                "C) Berlin\n"
-                "D) Madrid\n"
-                "Correct: A\n\n"
-                "or similar formatting."
-            )
-            
+        import fitz
+        doc = fitz.open(temp_file_path)
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            extracted_text += page.get_text() + "\n"
+        doc.close()
+        update.message.reply_text("Text extracted successfully using PyMuPDF.")
     except Exception as e:
-        import traceback
-        logger.error(f"Error in import_questions_from_pdf: {str(e)}")
-        logger.error(traceback.format_exc())
-        update.message.reply_text(f"Error importing questions: {str(e)}")
+        update.message.reply_text(f"PyMuPDF extraction failed: {str(e)}")
+        
+        # Try PyPDF2 as fallback
+        try:
+            import PyPDF2
+            with open(temp_file_path, 'rb') as f:
+                pdf_reader = PyPDF2.PdfReader(f)
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    extracted_text += page.extract_text() + "\n"
+            update.message.reply_text("Text extracted successfully using PyPDF2.")
+        except Exception as e:
+            update.message.reply_text(f"PyPDF2 extraction also failed: {str(e)}")
+            extracted_text = ""
+    
+    # Clean up temp file
+    try:
+        os.unlink(temp_file_path)
+    except:
+        pass
+    
+    # Check if we got any text
+    if not extracted_text:
+        update.message.reply_text("Failed to extract any text from PDF.")
+        return
+    
+    # Show a preview of extracted text
+    preview = extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text
+    update.message.reply_text(f"Extracted text preview:\n\n{preview}")
+    
+    update.message.reply_text("Analyzing text to find questions...")
+    
+    # Parse questions from text
+    questions = []
+    lines = extracted_text.split('\n')
+    
+    # Initialize variables
+    current_question = None
+    current_question_text = None
+    current_options = []
+    correct_option = None
+    question_count = 0
+    option_count = 0
+    
+    # Very lenient question and option detection
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Check for question patterns (very flexible)
+        question_match = re.search(r'(\d+)[\.\)]\s*(.+)', line)
+        if question_match and len(question_match.group(2)) > 10:  # Ensure some meaningful content
+            # If we already have a question, save it before starting a new one
+            if current_question_text and current_options:
+                correct_idx = 1  # Default to first option
+                if correct_option:
+                    if correct_option.upper() in "ABCD":
+                        correct_idx = ord(correct_option.upper()) - ord('A') + 1
+                    else:
+                        try:
+                            correct_idx = int(correct_option)
+                        except:
+                            pass
+                
+                questions.append({
+                    'question': current_question_text,
+                    'options': current_options,
+                    'correct_answer': correct_idx
+                })
+            
+            # Start a new question
+            current_question = int(question_match.group(1))
+            current_question_text = question_match.group(2)
+            current_options = []
+            correct_option = None
+            question_count += 1
+        
+        # Check for option patterns
+        option_match = re.search(r'(?:\()?([A-Da-d])(?:\))?\s*[\.\)]\s*(.+)', line)
+        if option_match and current_question_text:
+            option_letter = option_match.group(1).upper()
+            option_text = option_match.group(2)
+            
+            # Add this option
+            current_options.append(option_text)
+            option_count += 1
+            
+            # If this line contains a checkmark, it's the correct answer
+            if "✓" in line or "✔" in line or "√" in line:
+                correct_option = option_letter
+        
+        # Check for correct answer indicators
+        correct_match = re.search(r'(?:Correct|Answer|Ans):\s*([A-Da-d])', line, re.IGNORECASE)
+        if correct_match and current_question_text:
+            correct_option = correct_match.group(1)
+    
+    # Add the last question
+    if current_question_text and current_options:
+        correct_idx = 1  # Default to first option
+        if correct_option:
+            if correct_option.upper() in "ABCD":
+                correct_idx = ord(correct_option.upper()) - ord('A') + 1
+            else:
+                try:
+                    correct_idx = int(correct_option)
+                except:
+                    pass
+        
+        questions.append({
+            'question': current_question_text,
+            'options': current_options,
+            'correct_answer': correct_idx
+        })
+    
+    # Report parsing statistics
+    update.message.reply_text(f"Parsing statistics:\n- Found {question_count} potential questions\n- Found {option_count} potential options\n- Created {len(questions)} complete questions")
+    
+    # If no questions, create a basic set from text chunks as a fallback
+    if not questions and len(extracted_text) > 100:
+        update.message.reply_text("No structured questions found. Creating basic questions from text...")
+        
+        # Split text into chunks
+        chunks = []
+        current_chunk = ""
+        for line in lines:
+            if len(line.strip()) > 0:
+                if len(current_chunk) > 200:  # Start a new chunk if current one is big enough
+                    chunks.append(current_chunk)
+                    current_chunk = line
+                else:
+                    current_chunk += " " + line
+        
+        if current_chunk:
+            chunks.append(current_chunk)
+        
+        # Create basic questions from chunks
+        for i, chunk in enumerate(chunks[:10], 1):  # Limit to 10 questions
+            if len(chunk) > 20:  # Only use substantial chunks
+                questions.append({
+                    'question': f"What is the answer to this question? {chunk[:100]}...",
+                    'options': [
+                        "Option A",
+                        "Option B",
+                        "Option C",
+                        "Option D"
+                    ],
+                    'correct_answer': 1  # Default to A
+                })
+    
+    if not questions:
+        update.message.reply_text("No questions could be extracted from the PDF. "
+                                 "Make sure the format is correct.")
+        return
+    
+    # Store questions temporarily in user data
+    context.user_data['pdf_questions'] = questions
+    
+    # Create a confirmation message with question preview
+    preview_text = "Extracted the following questions:\n\n"
+    for i, question in enumerate(questions[:3], 1):  # Preview first 3 questions
+        preview_text += f"{i}. {question['question'][:50]}...\n"
+        for j, option in enumerate(question['options'][:4], 1):
+            preview_text += f"   {j}. {option[:30]}...\n"
+        preview_text += f"   Correct: Option {question['correct_answer']}\n\n"
+    
+    if len(questions) > 3:
+        preview_text += f"... and {len(questions) - 3} more questions\n\n"
+    
+    # Ask user to confirm import and provide a quiz name
+    keyboard = [
+        [InlineKeyboardButton("Create New Quiz", callback_data="pdf_create")],
+        [InlineKeyboardButton("Add to Marathon Quiz", callback_data="pdf_marathon")],
+        [InlineKeyboardButton("Cancel", callback_data="pdf_cancel")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    update.message.reply_text(
+        f"{preview_text}What would you like to do with these questions?",
+        reply_markup=reply_markup
+    )
 
 def handle_pdf_import_callback(update: Update, context: CallbackContext) -> None:
     """Handle callbacks for PDF question import."""
