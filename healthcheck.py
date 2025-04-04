@@ -14,7 +14,7 @@ from flask import Flask, jsonify
 
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
-from telegram.ext import ConversationHandler, Dispatcher, BaseFilter # Added BaseFilter
+from telegram.ext import ConversationHandler, Dispatcher
 
 # Import handlers
 from handlers.quiz_handlers import (
@@ -27,7 +27,7 @@ from handlers.admin_handlers import (
     finalize_quiz, admin_help, admin_command, edit_quiz_time, edit_question_time,
     convert_poll_to_quiz, start_marathon, finalize_marathon, cancel_marathon,
     set_question_correct_answer, import_questions_from_pdf, handle_pdf_import_callback,
-    diagnose_pdf_import, process_diagnostic_pdf  # Added new handlers
+    diagnose_pdf_import  # Only import diagnose_pdf_import
 )
 
 # Import config settings
@@ -70,25 +70,13 @@ def error_handler(update, context):
 def setup_handlers(dispatcher):
     """Set up all handlers for the bot"""
     
-    # First register the poll handler - THIS IS THE KEY CHANGE
+    # First register the poll handler
     dispatcher.add_handler(MessageHandler(Filters.poll | Filters.forwarded, convert_poll_to_quiz))
     
-    # Add the diagnostic PDF handler command
+    # Add the diagnostic PDF handler command - this will just set a flag
     dispatcher.add_handler(CommandHandler("diagnose_pdf", diagnose_pdf_import))
     
-    # Use a simpler approach with custom filter function instead of a class
-    def diagnostic_pdf_filter(update):
-        return (update.message and 
-                update.message.document and 
-                update.message.document.mime_type == 'application/pdf' and
-                update.message.from_user.id in ADMIN_USERS and
-                update.message.bot.dispatcher.user_data.get(update.message.from_user.id, {}).get('waiting_for_diagnostic_pdf', False))
-    
-    # Register the diagnostic PDF handler with a simpler approach
-    dispatcher.add_handler(MessageHandler(Filters.document.pdf & Filters.create(diagnostic_pdf_filter), 
-                                          process_diagnostic_pdf))
-    
-    # Then register the regular PDF import handler
+    # PDF document handler - covers both normal and diagnostic mode
     dispatcher.add_handler(MessageHandler(Filters.document.pdf, import_questions_from_pdf))
     dispatcher.add_handler(CallbackQueryHandler(handle_pdf_import_callback, pattern=r"^pdf_"))
     
