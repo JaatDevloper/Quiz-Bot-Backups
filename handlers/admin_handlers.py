@@ -1837,6 +1837,100 @@ def create_quiz_from_pdf(context, quiz_name, questions_data):
     add_quiz(new_quiz)
     
     return new_quiz
+
+def parse_hindi_questions(file_bytes):
+    """
+    Special parser for Hindi PDFs with checkmarks for correct answers
+    """
+    try:
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+            temp_file.write(file_bytes.getvalue())
+            temp_file_path = temp_file.name
+        
+        logger.info(f"Processing Hindi PDF at {temp_file_path}")
+        
+        # Try to use PyMuPDF as it handles Hindi better
+        questions = []
+        
+        try:
+            import fitz
+            doc = fitz.open(temp_file_path)
+            
+            # Process each page
+            current_question = None
+            current_options = []
+            correct_option = None
+            question_number = 0
+            
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                
+                # Get text blocks
+                blocks = page.get_text("blocks")
+                
+                for block in blocks:
+                    text = block[4]  # The text is in the 5th element
+                    
+                    # Debug
+                    logger.info(f"Block: {text[:50]}...")
+                    
+                    # Check if this is a question (starts with Q followed by number)
+                    if text.strip().startswith("Q ") or text.strip().startswith("Q.") or re.match(r'^Q\d+\.', text.strip()):
+                        # If we have a previous question, save it
+                        if current_question and current_options:
+                            questions.append({
+                                'question': current_question,
+                                'options': current_options,
+                                'correct_answer': correct_option or 1
+                            })
+                            logger.info(f"Added question: {current_question[:30]}... with {len(current_options)} options")
+                        
+                        # Start a new question
+                        current_question = text.strip()
+                        current_options = []
+                        correct_option = None
+                        question_number += 1
+                    
+                    # Check if this block contains option markers (A), (B), etc.
+                    elif re.search(r'\([A-D]\)', text):
+                        current_options.append(text.strip())
+                        
+                        # Check if this option has a checkmark or is highlighted in blue/green
+                        if "✓" in text or "√" in text or re.search(r'\([A-D]\).*?(✓|√)', text):
+                            # Extract the option letter
+                            option_match = re.search(r'\(([A-D])\)', text)
+                            if option_match:
+                                option_letter = option_match.group(1)
+                                correct_option = ord(option_letter) - ord('A') + 1
+                                logger.info(f"Found correct option {option_letter} (index {correct_option})")
+            
+            # Add the last question
+            if current_question and current_options:
+                questions.append({
+                    'question': current_question,
+                    'options': current_options,
+                    'correct_answer': correct_option or 1
+                })
+            
+            # Clean up
+            doc.close()
+            
+        except Exception as e:
+            logger.error(f"Error processing Hindi PDF: {str(e)}")
+        
+        # Clean up the temporary file
+        try:
+            os.unlink(temp_file_path)
+        except:
+            pass
+        
+        logger.info(f"Extracted {len(questions)} questions from Hindi PDF")
+        return questions
+        
+    except Exception as e:
+        logger.error(f"Critical error in Hindi PDF processing: {str(e)}")
+        return []
         
         
                     
