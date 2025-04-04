@@ -9,6 +9,7 @@ import logging
 import json
 from io import BytesIO
 
+import subprocess
 import unicodedata
 import io
 import re
@@ -3164,6 +3165,51 @@ def run_pdf_diagnostics(update, context):
                 update.message.reply_text("❌ No lines matched option pattern")
     
     update.message.reply_text("🔍 Diagnosis complete")
+
+def diagnose_pdf(update, context):
+    """
+    Diagnostic function for troubleshooting PDF processing
+    """
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can use this command.")
+        return
+    
+    update.message.reply_text("Running PDF support diagnostics...")
+    
+    # Check PyMuPDF installation
+    try:
+        import fitz
+        update.message.reply_text("✅ PyMuPDF is installed successfully.")
+        
+        # Create test Hindi text for checking encoding
+        test_hindi = "हिन्दी परीक्षण पाठ - यह अच्छी तरह से काम कर रहा है"
+        update.message.reply_text(f"Testing Hindi text display: {test_hindi}")
+        
+    except ImportError:
+        update.message.reply_text("❌ PyMuPDF is not installed.")
+    
+    # Check PyPDF2 installation
+    try:
+        import PyPDF2
+        update.message.reply_text("✅ PyPDF2 is installed successfully.")
+    except ImportError:
+        update.message.reply_text("❌ PyPDF2 is not installed.")
+    
+    # Check system locale
+    import locale
+    current_locale = locale.getlocale()
+    update.message.reply_text(f"Current system locale: {current_locale}")
+    
+    # Provide font information
+    try:
+        font_check = subprocess.run(["fc-list", ":lang=hi"], capture_output=True, text=True)
+        hindi_fonts = font_check.stdout.strip()
+        update.message.reply_text("Hindi font availability:\n" + (hindi_fonts[:200] if hindi_fonts else "No Hindi fonts found"))
+    except Exception as e:
+        update.message.reply_text(f"Could not check font information: {str(e)}")
+    
+    update.message.reply_text("📝 PDF diagnosis complete.")
 
 
     
