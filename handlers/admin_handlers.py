@@ -1508,12 +1508,16 @@ def import_questions_from_pdf(update, context):
     
     update.message.reply_text("Processing PDF file. This may take a moment...")
     
-    # Extract text from PDF
+    # Try standard text extraction first
     try:
         pdf_text = extract_text_from_pdf(file_bytes)
-        
-        # Parse questions from the text
         questions = parse_questions_from_pdf_text(pdf_text)
+        
+        # If no questions found, try the Hindi-specific parser
+        if not questions:
+            logger.info("Standard parsing failed, trying Hindi-specific parser")
+            file_bytes.seek(0)  # Reset file position
+            questions = parse_hindi_questions(file_bytes)
         
         if not questions:
             update.message.reply_text("No questions could be extracted from the PDF. "
@@ -1526,9 +1530,9 @@ def import_questions_from_pdf(update, context):
         # Create a confirmation message with question preview
         preview_text = "Extracted the following questions:\n\n"
         for i, question in enumerate(questions[:3], 1):  # Preview first 3 questions
-            preview_text += f"{i}. {question['question']}\n"
-            for j, option in enumerate(question['options'], 1):
-                preview_text += f"   {j}. {option}\n"
+            preview_text += f"{i}. {question['question'][:50]}...\n"
+            for j, option in enumerate(question['options'][:4], 1):
+                preview_text += f"   {j}. {option[:30]}...\n"
             preview_text += f"   Correct: Option {question['correct_answer']}\n\n"
         
         if len(questions) > 3:
