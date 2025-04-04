@@ -2186,6 +2186,187 @@ def extract_and_parse_questions(file_bytes):
     except Exception as e:
         logger.error(f"Error in extract_and_parse_questions: {str(e)}")
         return []
+
+def diagnose_pdf_import(update, context):
+    """
+    Diagnostic command to identify issues with PDF import
+    """
+    # Check if user is admin
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_USERS:
+        update.message.reply_text("Sorry, only admins can use this command.")
+        return
+    
+    update.message.reply_text("Please forward a PDF to diagnose the import process.")
+    context.user_data['waiting_for_diagnostic_pdf'] = True
+
+def process_diagnostic_pdf(update, context):
+    """
+    Process a PDF for diagnostics
+    """
+    if not context.user_data.get('waiting_for_diagnostic_pdf'):
+        return
+    
+    # Reset the flag
+    context.user_data['waiting_for_diagnostic_pdf'] = False
+    
+    # Check if a document was provided
+    if not update.message.document or update.message.document.mime_type != 'application/pdf':
+        update.message.reply_text("Please forward a PDF file for diagnosis.")
+        return
+    
+    update.message.reply_text("🔍 Starting PDF import diagnosis...")
+    
+    # Get the document file
+    document = update.message.document
+    file_id = document.file_id
+    file_name = document.file_name if document.file_name else "unknown.pdf"
+    file_size = document.file_size
+    
+    update.message.reply_text(f"📄 PDF Information:\n- Name: {file_name}\n- Size: {file_size} bytes")
+    
+    # Download the file
+    try:
+        update.message.reply_text("⬇️ Downloading PDF file...")
+        file = context.bot.get_file(file_id)
+        file_bytes = io.BytesIO()
+        file.download(out=file_bytes)
+        file_bytes.seek(0)
+        update.message.reply_text("✅ Download successful")
+    except Exception as e:
+        update.message.reply_text(f"❌ Download failed: {str(e)}")
+        return
+    
+    # Save to temporary file
+    try:
+        update.message.reply_text("💾 Saving to temporary file...")
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+            temp_file.write(file_bytes.getvalue())
+            temp_file_path = temp_file.name
+        update.message.reply_text(f"✅ Saved to {temp_file_path}")
+    except Exception as e:
+        update.message.reply_text(f"❌ Failed to save: {str(e)}")
+        return
+    
+    # Test PyMuPDF extraction
+    try:
+        update.message.reply_text("🔍 Testing extraction with PyMuPDF...")
+        import fitz
+        doc = fitz.open(temp_file_path)
+        page_count = len(doc)
+        update.message.reply_text(f"📄 PDF has {page_count} pages")
+        
+        # Extract text from first page as sample
+        if page_count > 0:
+            page = doc.load_page(0)
+            text = page.get_text()
+            text_preview = text[:200] + "..." if len(text) > 200 else text
+            update.message.reply_text(f"📝 First page text sample:\n{text_preview}")
+        
+        doc.close()
+        update.message.reply_text("✅ PyMuPDF extraction successful")
+    except Exception as e:
+        update.message.reply_text(f"❌ PyMuPDF extraction failed: {str(e)}")
+        
+        # Try PyPDF2 as fallback
+        try:
+            update.message.reply_text("🔍 Testing extraction with PyPDF2...")
+            import PyPDF2
+            with open(temp_file_path, 'rb') as f:
+                pdf_reader = PyPDF2.PdfReader(f)
+                page_count = len(pdf_reader.pages)
+                update.message.reply_text(f"📄 PDF has {page_count} pages")
+                
+                # Extract text from first page as sample
+                if page_count > 0:
+                    text = pdf_reader.pages[0].extract_text()
+                    text_preview = text[:200] + "..." if len(text) > 200 else text
+                    update.message.reply_text(f"📝 First page text sample:\n{text_preview}")
+            update.message.reply_text("✅ PyPDF2 extraction successful")
+        except Exception as e:
+            update.message.reply_text(f"❌ PyPDF2 extraction failed: {str(e)}")
+    
+    # Try to parse questions from the extracted text
+    try:
+        update.message.reply_text("🔍 Attempting to extract all text for question parsing...")
+        
+        # Get all text from PDF
+        all_text = ""
+        
+        try:
+            # Try PyMuPDF first
+            import fitz
+            doc = fitz.open(temp_file_path)
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                all_text += page.get_text() + "\n"
+            doc.close()
+        except Exception:
+            # Fall back to PyPDF2
+            try:
+                import PyPDF2
+                with open(temp_file_path, 'rb') as f:
+                    pdf_reader = PyPDF2.PdfReader(f)
+                    for page_num in range(len(pdf_reader.pages)):
+                        all_text += pdf_reader.pages[page_num].extract_text() + "\n"
+            except Exception as e:
+                update.message.reply_text(f"❌ All text extraction methods failed: {str(e)}")
+                all_text = ""
+        
+        # Clean up temp file
+        try:
+            os.unlink(temp_file_path)
+        except:
+            pass
+        
+        if not all_text:
+            update.message.reply_text("❌ Failed to extract any text for parsing")
+        else:
+            update.message.reply_text(f"✅ Extracted {len(all_text)} characters of text")
+            
+            # Look for potential questions and options
+            lines = all_text.split('\n')
+            question_pattern = re.compile(r'(\d+)[\.\)]\s*(.+)')
+            option_pattern = re.compile(r'(?:\()?([A-Da-d])(?:\))?\s*[\.\)]\s*(.+)')
+            
+            # Count potential questions and options
+            question_lines = []
+            option_lines = []
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Check for question pattern
+                question_match = question_pattern.search(line)
+                if question_match:
+                    question_lines.append(line)
+                
+                # Check for option pattern
+                option_match = option_pattern.search(line)
+                if option_match:
+                    option_lines.append(line)
+            
+            update.message.reply_text(f"🔍 Found {len(question_lines)} potential question lines and {len(option_lines)} potential option lines")
+            
+            # Show examples of what was found
+            if question_lines:
+                examples = "\n".join(question_lines[:3])
+                update.message.reply_text(f"📝 Question examples:\n{examples}")
+            else:
+                update.message.reply_text("❌ No lines matched question pattern")
+            
+            if option_lines:
+                examples = "\n".join(option_lines[:3])
+                update.message.reply_text(f"📝 Option examples:\n{examples}")
+            else:
+                update.message.reply_text("❌ No lines matched option pattern")
+    
+    except Exception as e:
+        update.message.reply_text(f"❌ Error during question pattern analysis: {str(e)}")
+    
+    update.message.reply_text("🔍 Diagnosis complete")
         
         
                     
