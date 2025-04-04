@@ -9,6 +9,7 @@ import logging
 import json
 from io import BytesIO
 
+import unicodedata
 import io
 import re
 import os
