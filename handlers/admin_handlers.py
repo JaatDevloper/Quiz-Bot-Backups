@@ -1553,37 +1553,92 @@ def import_questions_from_pdf(update, context):
 
 def extract_text_from_pdf(file_bytes):
     """
-    Basic text extraction from PDF as binary
-    This is a fallback method when PDF parsing libraries are not available
+    Enhanced text extraction from PDF with better encoding handling
+    and fallback methods.
     """
     text = ""
     try:
-        # Try to get text directly from binary data
-        binary_content = file_bytes.getvalue()
+        # Save the bytes to a temporary file
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+            temp_file.write(file_bytes.getvalue())
+            temp_file_path = temp_file.name
         
-        # Log the size for debugging
-        logger.info(f"PDF binary size: {len(binary_content)} bytes")
+        logger.info(f"Saved PDF to temporary file: {temp_file_path}")
         
-        # Decode the binary data to text with error handling
-        decoded_text = binary_content.decode('utf-8', errors='ignore')
+        # First attempt: Try PyMuPDF if available
+        try:
+            import fitz
+            doc = fitz.open(temp_file_path)
+            text = ""
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                text += page.get_text("text") + "\n"  # Use 'text' mode for cleaner extraction
+            doc.close()
+            logger.info("Successfully extracted text using PyMuPDF")
+        except ImportError:
+            logger.info("PyMuPDF not available, trying alternative method")
+            
+            # Second attempt: Try PyPDF2 if available
+            try:
+                import PyPDF2
+                with open(temp_file_path, 'rb') as f:
+                    pdf_reader = PyPDF2.PdfReader(f)
+                    text = ""
+                    for page_num in range(len(pdf_reader.pages)):
+                        page = pdf_reader.pages[page_num]
+                        text += page.extract_text() + "\n"
+                logger.info("Successfully extracted text using PyPDF2")
+            except ImportError:
+                logger.info("PyPDF2 not available, using basic binary extraction")
+                
+                # Third attempt: Basic binary extraction as fallback
+                with open(temp_file_path, 'rb') as f:
+                    binary_content = f.read()
+                
+                # Try different encodings
+                encodings = ['utf-8', 'utf-16', 'latin-1', 'cp1252']
+                for encoding in encodings:
+                    try:
+                        decoded_text = binary_content.decode(encoding, errors='ignore')
+                        # If we got something useful
+                        if len(decoded_text) > 100:
+                            text = decoded_text
+                            logger.info(f"Extracted text using {encoding} encoding")
+                            break
+                    except:
+                        continue
         
-        # Basic cleanup - remove non-printable characters while preserving Unicode
-        cleaned_text = ''.join(c if c.isprintable() or c in '\n\r\t' else ' ' for c in decoded_text)
+        # Clean up the temporary file
+        try:
+            os.unlink(temp_file_path)
+        except:
+            pass
         
-        # Extract lines that might be questions
-        lines = []
-        for line in cleaned_text.split('\n'):
-            line = line.strip()
-            # Accept shorter lines that might be in Hindi
-            if len(line) > 3 and not line.startswith('%') and not line.startswith('/'):
-                lines.append(line)
+        # Post-processing: remove garbage and clean up text
+        # Remove binary junk often found in PDF text extraction
+        cleaned_lines = []
+        for line in text.split('\n'):
+            # Skip lines with too many non-printable characters
+            printable_chars = sum(1 for c in line if c.isprintable())
+            if len(line) > 0 and printable_chars / len(line) > 0.7:  # At least 70% printable
+                # Replace sequences of weird chars with spaces
+                cleaned_line = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]+', ' ', line)
+                # Remove excessive spaces
+                cleaned_line = re.sub(r'\s+', ' ', cleaned_line).strip()
+                if cleaned_line:
+                    cleaned_lines.append(cleaned_line)
         
-        text = '\n'.join(lines)
-        logger.info(f"Extracted {len(lines)} text lines from PDF")
+        text = '\n'.join(cleaned_lines)
+        
+        # Add some debugging to see what was extracted
+        logger.info(f"Extracted {len(cleaned_lines)} cleaned lines from PDF")
+        if cleaned_lines:
+            preview = '\n'.join(cleaned_lines[:10])
+            logger.info(f"First 10 lines preview: {preview}")
         
     except Exception as e:
-        logger.error(f"Error extracting text from PDF: {e}")
-        raise
+        logger.error(f"Error in PDF extraction: {str(e)}")
+        # Still return whatever text we managed to extract
     
     return text
 
