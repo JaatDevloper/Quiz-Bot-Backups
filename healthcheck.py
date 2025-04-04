@@ -14,7 +14,7 @@ from flask import Flask, jsonify
 
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
-from telegram.ext import ConversationHandler, Dispatcher
+from telegram.ext import ConversationHandler, Dispatcher, BaseFilter # Added BaseFilter
 
 # Import handlers
 from handlers.quiz_handlers import (
@@ -76,19 +76,17 @@ def setup_handlers(dispatcher):
     # Add the diagnostic PDF handler command
     dispatcher.add_handler(CommandHandler("diagnose_pdf", diagnose_pdf_import))
     
-    # PDF document handlers
-    # We need to prioritize the diagnostic PDF handler over the regular PDF import handler
-    # Create a custom filter that checks if we're waiting for a diagnostic PDF
-    class DiagnosticPdfFilter(Filters.base):
-        def filter(self, message):
-            return (message.document and message.document.mime_type == 'application/pdf'
-                  and message.chat.id in ADMIN_USERS
-                  and message.bot.dispatcher.user_data.get(message.from_user.id, {}).get('waiting_for_diagnostic_pdf', False))
+    # Use a simpler approach with custom filter function instead of a class
+    def diagnostic_pdf_filter(update):
+        return (update.message and 
+                update.message.document and 
+                update.message.document.mime_type == 'application/pdf' and
+                update.message.from_user.id in ADMIN_USERS and
+                update.message.bot.dispatcher.user_data.get(update.message.from_user.id, {}).get('waiting_for_diagnostic_pdf', False))
     
-    diagnostic_pdf_filter = DiagnosticPdfFilter()
-    
-    # Register the diagnostic PDF handler first (higher priority)
-    dispatcher.add_handler(MessageHandler(diagnostic_pdf_filter, process_diagnostic_pdf))
+    # Register the diagnostic PDF handler with a simpler approach
+    dispatcher.add_handler(MessageHandler(Filters.document.pdf & Filters.create(diagnostic_pdf_filter), 
+                                          process_diagnostic_pdf))
     
     # Then register the regular PDF import handler
     dispatcher.add_handler(MessageHandler(Filters.document.pdf, import_questions_from_pdf))
